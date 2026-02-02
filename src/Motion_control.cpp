@@ -6,6 +6,7 @@
 #include "many_soft_AS5600.h"
 #include "app_api.h"
 #include "hal/time_hw.h"
+#include "../CONFIG_DOUBLE_MICROSWITCH.h"
 
 static inline float absf(float x) { return (x < 0.0f) ? -x : x; }
 static inline float clampf(float x, float a, float b)
@@ -93,6 +94,7 @@ static float  MC_PULL_stu_raw[4]        = {1.65f, 1.65f, 1.65f, 1.65f};
 static int8_t MC_PULL_stu[4]            = {0, 0, 0, 0};
 
 static uint8_t MC_ONLINE_key_stu[4]     = {0, 0, 0, 0};
+static float   MC_ONLINE_key_stu_raw[4] = {0.0f, 0.0f, 0.0f, 0.0f}; // Raw voltage for dual microswitch
 
 bool filament_channel_inserted[4]       = {false, false, false, false}; // czy kanał fizycznie wpięty
 
@@ -260,11 +262,62 @@ static inline void MC_PULL_ONLINE_read()
     MC_PULL_stu_raw[0] = data[6] + MC_PULL_V_OFFSET[0];
     const float key0   = data[7];
 
-    // online key: tylko jeśli kanał fizycznie wpięty
-    MC_ONLINE_key_stu[3] = (filament_channel_inserted[3] && (key3 > 1.65f)) ? 1u : 0u;
-    MC_ONLINE_key_stu[2] = (filament_channel_inserted[2] && (key2 > 1.65f)) ? 1u : 0u;
-    MC_ONLINE_key_stu[1] = (filament_channel_inserted[1] && (key1 > 1.65f)) ? 1u : 0u;
-    MC_ONLINE_key_stu[0] = (filament_channel_inserted[0] && (key0 > 1.65f)) ? 1u : 0u;
+    // Save raw voltages for dual microswitch diagnostics
+    MC_ONLINE_key_stu_raw[3] = key3;
+    MC_ONLINE_key_stu_raw[2] = key2;
+    MC_ONLINE_key_stu_raw[1] = key1;
+    MC_ONLINE_key_stu_raw[0] = key0;
+
+    // ===== DUAL MICROSWITCH INTERPRETATION =====
+    // MC_ONLINE_key_stu[i] states:
+    // 0 = Offline - no filament (V < 0.6V)
+    // 1 = Online - both microswitches activated (V > 1.7V)
+    // 2 = External only - needs assistance (1.4V < V < 1.7V)
+    // 3 = Internal only - anomaly situation (0.6V < V < 1.4V)
+    
+    if (IS_TWO_MICROSWITCH_ENABLED)
+    {
+        // DUAL MICROSWITCH system active
+        for (int i = 0; i < 4; i++)
+        {
+            if (!filament_channel_inserted[i])
+            {
+                MC_ONLINE_key_stu[i] = 0;
+                continue;
+            }
+
+            const float key_voltage = MC_ONLINE_key_stu_raw[i];
+
+            if (key_voltage < THRESHOLD_OFFLINE)
+            {
+                // No microswitch pressed - filament offline
+                MC_ONLINE_key_stu[i] = 0;
+            }
+            else if ((key_voltage > THRESHOLD_EXTERNAL_MIN) && (key_voltage < THRESHOLD_EXTERNAL_MAX))
+            {
+                // Only EXTERNAL microswitch pressed - NEEDS ASSISTANCE
+                MC_ONLINE_key_stu[i] = 2;
+            }
+            else if (key_voltage > THRESHOLD_BOTH)
+            {
+                // BOTH microswitches pressed - filament fully inserted
+                MC_ONLINE_key_stu[i] = 1;
+            }
+            else // (key_voltage >= THRESHOLD_OFFLINE && key_voltage <= THRESHOLD_EXTERNAL_MIN)
+            {
+                // Only INTERNAL microswitch pressed - anomaly situation
+                MC_ONLINE_key_stu[i] = 3;
+            }
+        }
+    }
+    else
+    {
+        // SINGLE MICROSWITCH system (classic mode)
+        MC_ONLINE_key_stu[3] = (filament_channel_inserted[3] && (key3 > 1.65f)) ? 1u : 0u;
+        MC_ONLINE_key_stu[2] = (filament_channel_inserted[2] && (key2 > 1.65f)) ? 1u : 0u;
+        MC_ONLINE_key_stu[1] = (filament_channel_inserted[1] && (key1 > 1.65f)) ? 1u : 0u;
+        MC_ONLINE_key_stu[0] = (filament_channel_inserted[0] && (key0 > 1.65f)) ? 1u : 0u;
+    }
 
 
     for (uint8_t i = 0; i < kChCount; i++)
@@ -663,6 +716,7 @@ public:
         {
             if (MC_ONLINE_key_stu[CHx] == 0)
             {
+                // Normal handling when assistance disabled or single microswitch system
                 if (!filament_channel_inserted[CHx] || !had_on_use)
                 {
                     PID_pressure.clear();
@@ -1788,12 +1842,41 @@ static void motor_motion_run(int error)
         } else if (MC_PULL_stu[i] == -1) {
             MC_PULL_ONLINE_RGB_set(i, 0x00, 0x00, 0x10);
         } else {
-            if (MC_ONLINE_key_stu[i] != 0) {
-                MC_PULL_ONLINE_RGB_set(i, 0x00, 0x00, 0x00);
-            } else {
-                const uint8_t pct = MC_PULL_pct[i];
-                if ((uint8_t)(pct - 49u) <= 2u) MC_PULL_ONLINE_RGB_set(i, 0x10, 0x08, 0x00);
-                else MC_PULL_ONLINE_RGB_set(i, 0x00, 0x00, 0x00);
+            // ===== VISUAL LED FEEDBACK FOR DUAL MICROSWITCH =====
+            if (IS_TWO_MICROSWITCH_ENABLED)
+            {
+                // Dual microswitch system - distinctive LED for each state
+                if (MC_ONLINE_key_stu[i] == 2)
+                {
+                    // Only EXTERNAL microswitch - Assistance active (Orange/Gold)
+                    MC_PULL_ONLINE_RGB_set(i, 0xFF, 0x90, 0x00);
+                }
+                else if (MC_ONLINE_key_stu[i] == 1)
+                {
+                    // BOTH microswitches - Filament fully inserted (Blue)
+                    MC_PULL_ONLINE_RGB_set(i, 0x00, 0x00, 0xFF);
+                }
+                else if (MC_ONLINE_key_stu[i] == 3)
+                {
+                    // Only INTERNAL microswitch - Anomaly situation (Cyan)
+                    MC_PULL_ONLINE_RGB_set(i, 0x00, 0xFF, 0xFF);
+                }
+                else // MC_ONLINE_key_stu[i] == 0
+                {
+                    // No filament - Offline (Off or dim blue)
+                    MC_PULL_ONLINE_RGB_set(i, 0x00, 0x00, 0x10);
+                }
+            }
+            else
+            {
+                // Single microswitch system - original behavior
+                if (MC_ONLINE_key_stu[i] != 0) {
+                    MC_PULL_ONLINE_RGB_set(i, 0x00, 0x00, 0x00);
+                } else {
+                    const uint8_t pct = MC_PULL_pct[i];
+                    if ((uint8_t)(pct - 49u) <= 2u) MC_PULL_ONLINE_RGB_set(i, 0x10, 0x08, 0x00);
+                    else MC_PULL_ONLINE_RGB_set(i, 0x00, 0x00, 0x00);
+                }
             }
         }
     }
