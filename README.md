@@ -213,6 +213,12 @@ This firmware has undergone solid testing, and no issues are expected.
 
 # Changelog
 
+## V10.5
+
+### User-visible changes
+  - Added unique UID (Serial Number) generation for each BMCU device to ensure distinct identification in Home Assistant and other multi-device setups.
+  - 为每个 BMCU 设备生成唯一的 注册UID（序列号），确保在 Home Assistant 等多设备环境中具有独立的身份标识。
+
 ## V10.4
 
 ### User-visible changes

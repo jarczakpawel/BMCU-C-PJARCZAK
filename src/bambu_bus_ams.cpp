@@ -1131,8 +1131,21 @@ void get_package_long_packge_serial_number(unsigned char *buf, int length)
         return;
     }
 
-    long_packge_version_serial_number[4] = 0x30 + ams_num; // ams num serial
-    long_packge_version_serial_number[34] = 0xA0 + ams_num;
+    // ams num serial
+    unsigned char *uid_ptr = (unsigned char *)0x1FFFF7E8; // get unique ID from CH32V203 flash, 96 bits
+    // 防止 SN 重复
+    for(int i = 0; i < 12; i++) {
+        long_packge_version_serial_number[i] = uid_ptr[i];
+    }
+    long_packge_version_serial_number[13] = ams_num;    // 简单用于区分 num
+    long_packge_version_serial_number[14] = uid_ptr[5]; // 补充
+    long_packge_version_serial_number[15] = uid_ptr[6]; // 补充
+    for(int i = 30; i < 42; i++) {
+        long_packge_version_serial_number[i] = uid_ptr[i];
+    }
+    long_packge_version_serial_number[33] = ams_num;    // 简单用于区分 num
+    long_packge_version_serial_number[34] = uid_ptr[5]; // 补充
+    long_packge_version_serial_number[35] = uid_ptr[6]; // 补充
 
     // long_packge_version_serial_number[0] = ams_ptr->serial_number_length;
 
@@ -1157,7 +1170,7 @@ void get_package_long_packge_serial_number(unsigned char *buf, int length)
 //0x46 // 70
 //0x50 // 80
 //0x5A // 90
-unsigned char long_packge_version_version_and_name_AMS08[] = {0x00, 0x00, 0x28, 0x0A , // verison number
+unsigned char long_packge_version_version_and_name_AMS08[] = {0x00, 0x00, 0x32, 0x0A , // verison number
                                                               0x41, 0x4D, 0x53, 0x30, 0x38, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 //unsigned char long_packge_version_version_and_name_AMS2PRO[] = {
 //    0x00, 0x00, 0x00, 0x5A,
