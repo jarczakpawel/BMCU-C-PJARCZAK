@@ -10,6 +10,7 @@ Choose between: FILAMENT_RGB_ON and FILAMENT_RGB_OFF.
 
 FILAMENT_RGB_ON
 - After a filament is loaded, the front LED (per channel) lights up in the selected filament color.
+- After a filament is loaded, the second front LED (channel status) lights up white (channel is OK, idle).
 - The LED still reacts to buffer status (pressure) as usual.
 
 FILAMENT_RGB_OFF
@@ -17,7 +18,7 @@ FILAMENT_RGB_OFF
 - The front LED only indicates buffer status:
   - centered/neutral position (when no filament is loaded),
   - buffer extremes (too much / too little pressure).
-
+- The second front LED "OK" status (filament loaded, idle, waiting) is disabled, other statuses are still shown as usual. 
 
 --------------------------------------------------------------------------
 
@@ -31,7 +32,7 @@ How FILAMENT_RGB_ON works
 - The colors can be quite bright, which may be distracting (especially at night in a room).
   If you want a calm/no-light setup, choose FILAMENT_RGB_OFF instead.
 
-No other behavior changes - this option only affects the front LED.
+No other behavior changes - this option only affects the front LEDs (RGB and status).
 
 
 --------------------------------------------------------------------------

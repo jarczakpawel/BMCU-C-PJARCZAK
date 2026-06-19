@@ -7,6 +7,18 @@
 #include "app_api.h"
 #include "hal/time_hw.h"
 
+#if BMCU_ONLINE_LED_FILAMENT_RGB
+// RGB on, set channel system led color as white
+constexpr uint8_t STU_OK_R = 0x38u;
+constexpr uint8_t STU_OK_G = 0x35u;
+constexpr uint8_t STU_OK_B = 0x32u;
+#else
+// RGB off, disable channel system led
+constexpr uint8_t STU_OK_R = 0x00u;
+constexpr uint8_t STU_OK_G = 0x00u;
+constexpr uint8_t STU_OK_B = 0x00u;
+#endif
+
 static inline float absf(float x) { return (x < 0.0f) ? -x : x; }
 static inline float clampf(float x, float a, float b)
 {
@@ -1232,7 +1244,7 @@ public:
                                     dm_auto_remain_m[CHx] = 0.0f;
                                     dm_auto_t0_ms[CHx]    = 0ull;
 
-                                    MC_STU_RGB_set(CHx, 0x38, 0x35, 0x32);
+                                    MC_STU_RGB_set(CHx, STU_OK_R, STU_OK_G, STU_OK_B);
                                     dm_autoload_x = 0.0f;
                                 }
                                 else
@@ -2355,7 +2367,7 @@ static void motor_motion_switch(uint64_t time_now)
                 if (g_on_use_jam_latch[num])
                 {
                     MOTOR_CONTROL[num].set_motion(filament_motion_enum::filament_motion_stop, 100, time_now);
-                    MC_STU_RGB_set_latch(num, 0x38u, 0x35u, 0x32u, time_now, 0u);
+                    MC_STU_RGB_set_latch(num, STU_OK_R, STU_OK_G, STU_OK_B, time_now, 0u);
                     break;
                 }
 
@@ -2363,10 +2375,10 @@ static void motor_motion_switch(uint64_t time_now)
 
 #if BMCU_DM_TWO_MICROSWITCH
                 if (dm_fail_latch[num])      MC_STU_RGB_set_latch(num, 0xFFu, 0x00u, 0x00u, time_now, 0u);
-                else if (dm_loaded[num])     MC_STU_RGB_set_latch(num, 0x38u, 0x35u, 0x32u, time_now, 0u);
+                else if (dm_loaded[num])     MC_STU_RGB_set_latch(num, STU_OK_R, STU_OK_G, STU_OK_B, time_now, 0u);
                 else                         MC_STU_RGB_set_latch(num, 0x00u, 0x00u, 0x00u, time_now, 0u);
 #else
-                MC_STU_RGB_set_latch(num, 0x38u, 0x35u, 0x32u, time_now, 0u);
+                MC_STU_RGB_set_latch(num, STU_OK_R, STU_OK_G, STU_OK_B, time_now, 0u);
 #endif
                 break;
             }
@@ -2404,18 +2416,18 @@ static inline void stu_apply_baseline(int error, uint64_t now_ms)
             (MC_ONLINE_key_stu[i] != 0u) &&
             ins_ok;
 
-        if (show_loaded) MC_STU_RGB_set_latch(i, 0x38u, 0x35u, 0x32u, now_ms, 0u);
+        if (show_loaded) MC_STU_RGB_set_latch(i, STU_OK_R, STU_OK_G, STU_OK_B, now_ms, 0u);
         else             MC_STU_RGB_set_latch(i, 0x00u, 0x00u, 0x00u, now_ms, 0u);
 #else
         if (error)
         {
-            if (MC_ONLINE_key_stu[i] != 0) MC_STU_RGB_set_latch(i, 0x38u, 0x35u, 0x32u, now_ms, 0u);
+            if (MC_ONLINE_key_stu[i] != 0) MC_STU_RGB_set_latch(i, STU_OK_R, STU_OK_G, STU_OK_B, now_ms, 0u);
             else                           MC_STU_RGB_set_latch(i, 0x00u, 0x00u, 0x00u, now_ms, 0u);
         }
         else
         {
             if (MC_ONLINE_key_stu[i] != 0 && filament_channel_inserted[i])
-                MC_STU_RGB_set_latch(i, 0x38u, 0x35u, 0x32u, now_ms, 0u);
+                MC_STU_RGB_set_latch(i, STU_OK_R, STU_OK_G, STU_OK_B, now_ms, 0u);
             else
                 MC_STU_RGB_set_latch(i, 0x00u, 0x00u, 0x00u, now_ms, 0u);
         }
