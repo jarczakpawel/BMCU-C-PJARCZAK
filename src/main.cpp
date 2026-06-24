@@ -32,7 +32,7 @@ void RGB_update()
 
     static uint32_t last = 0u;
 
-    uint32_t min_gap = time_hw_tpms;
+    uint32_t min_gap = time_hw_tpms * 10u;
     if (!min_gap) min_gap = 1u;
 
     const uint32_t now = time_ticks32();
