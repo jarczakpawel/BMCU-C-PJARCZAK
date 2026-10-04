@@ -18,16 +18,19 @@ public:
 
 private:
     uint8_t tx_dma_buf[1280] __attribute__((aligned(4)));
-    uint8_t recv_data_buf[2][1280] __attribute__((aligned(4)));
+    uint8_t recv_data_buf[3][1280] __attribute__((aligned(4)));
     uint8_t tx_build_sel = 0;
+    uint8_t rx_read = 0, rx_write = 0, rx_count = 0;
+    uint16_t rx_length[3] = {};
+    _bus_data_type rx_type[3] = {};
     int _index = 0;
     int length = 999;
     uint8_t data_length_index = 0;
     uint8_t data_CRC8_index = 0;
     _bus_data_type irq_package_type = _bus_data_type::none;
     uint8_t *bus_irq_data_ptr = recv_data_buf[0];
-    int drop_bytes = 0;
-    void (*port_send_datas)(uint8_t *data, uint16_t len);
+    int heartbeat_drop_bytes = 0;
+    bool (*port_send_datas)(uint8_t *data, uint16_t len);
 
 public:
     uint8_t * volatile bus_recv_data_ptr = recv_data_buf[0];
@@ -41,7 +44,7 @@ public:
         return tx_build_sel ? tx_dma_buf : send_data_buf;
     }
 
-    void init(void (*_port_send_datas)(uint8_t *data, uint16_t len))
+    void init(bool (*_port_send_datas)(uint8_t *data, uint16_t len))
     {
         _index = 0;
         length = 999;
@@ -49,8 +52,9 @@ public:
         data_CRC8_index = 0;
         irq_package_type = _bus_data_type::none;
         bus_irq_data_ptr = recv_data_buf[0];
-        drop_bytes = 0;
-        bus_recv_data_ptr = recv_data_buf[1];
+        heartbeat_drop_bytes = 0;
+        bus_recv_data_ptr = recv_data_buf[0];
+        rx_read = rx_write = rx_count = 0;
         idle = true;
         send_data_len = 0;
         recv_data_len = 0;
@@ -58,11 +62,35 @@ public:
         port_send_datas = _port_send_datas;
     }
 
+    uint32_t rx_dropped = 0;
+    volatile uint32_t tx_errors = 0;
+
+    void reset_rx()
+    {
+        _index = 0;
+        heartbeat_drop_bytes = 0;
+        irq_package_type = _bus_data_type::none;
+    }
+
+    bool receiving() const { return _index != 0 || heartbeat_drop_bytes != 0; }
+
+    void release_packet()
+    {
+        if (rx_count) {
+            rx_read = (uint8_t)((rx_read + 1u) % 3u);
+            --rx_count;
+        }
+        bus_recv_data_ptr = recv_data_buf[rx_read];
+        bus_package_type = rx_count ? rx_type[rx_read] : _bus_data_type::none;
+        recv_data_len = rx_count ? rx_length[rx_read] : 0;
+    }
+
     void irq(uint8_t data)
     {
-        if (drop_bytes > 0)
+        // Heartbeat
+        if (__builtin_expect(heartbeat_drop_bytes > 0, 0))
         {
-            if (--drop_bytes == 0)
+            if (--heartbeat_drop_bytes == 0)
                 bambubus_heartbeat_seen_fast();
             return;
         }
@@ -120,11 +148,27 @@ public:
                 length = (((int)data) << 2) + 12;
             }
 
-            if (length <= (int)data_CRC8_index || length > BUF_SZ)
+            const int minimum = irq_package_type == _bus_data_type::ahub_bus ? 12 :
+                (data_length_index == 2 ? 7 : 15);
+            if (length < minimum || length > BUF_SZ)
             {
                 _index = 0;
                 return;
             }
+        }
+
+        if (irq_package_type == _bus_data_type::bambubus &&
+            idx == 4 && data_length_index == 2 && length >= 6 &&
+            buf[1] == 0xC5u && data == 0x20u)
+        {
+            const int remain = length - 5;
+            _index = 0;
+            irq_package_type = _bus_data_type::none;
+            if (remain > 0)
+                heartbeat_drop_bytes = remain;
+            else
+                bambubus_heartbeat_seen_fast();
+            return;
         }
 
         if (idx == data_CRC8_index)
@@ -136,41 +180,26 @@ public:
             }
         }
 
-        if (irq_package_type == _bus_data_type::bambubus &&
-            idx == 4 &&
-            data_length_index == 2 &&
-            length >= 6 &&
-            buf[1] == 0xC5 &&
-            data == 0x20)
-        {
-            const int remain = length - 5;
-            _index = 0;
-
-            if (remain > 0)
-            {
-                drop_bytes = remain;
-            }
-            else
-            {
-                bambubus_heartbeat_seen_fast();
-            }
-            return;
-        }
-
         ++idx;
 
         if (idx >= length)
         {
             _index = 0;
 
-            if (recv_data_len == 0)
+            if (rx_count < 2u)
             {
-                uint8_t *tmp = bus_recv_data_ptr;
-                bus_recv_data_ptr = bus_irq_data_ptr;
-                bus_irq_data_ptr = tmp;
-                bus_package_type = irq_package_type;
-                recv_data_len = length;
+                rx_length[rx_write] = (uint16_t)length;
+                rx_type[rx_write] = irq_package_type;
+                if (rx_count == 0u) {
+                    bus_recv_data_ptr = bus_irq_data_ptr;
+                    bus_package_type = irq_package_type;
+                    recv_data_len = length;
+                }
+                ++rx_count;
+                rx_write = (uint8_t)((rx_write + 1u) % 3u);
+                bus_irq_data_ptr = recv_data_buf[rx_write];
             }
+            else ++rx_dropped;
             return;
         }
 
@@ -185,10 +214,10 @@ public:
             if (!idle) return;
 
             uint8_t *tx = tx_build_buf();
-            tx_build_sel ^= 1;
-
-            port_send_datas(tx, (uint16_t)len);
-            send_data_len = 0;
+            if (port_send_datas(tx, (uint16_t)len)) {
+                tx_build_sel ^= 1;
+                send_data_len = 0;
+            }
         }
     }
 
@@ -204,6 +233,9 @@ public:
 
 extern _bus_port_deal bus_port_to_host;
 extern void bus_init();
+void bus_rx_poll();
+bool bus_background_ready();
+void bus_shutdown();
 
 #define host_device_type_none 0x0000
 #define host_device_type_ahub 0x0001

@@ -314,7 +314,7 @@ void AS5600_soft_IIC_many::updata_stu()
     {
         online[i] = (error[i] == 0);
 
-        if (!(data[i] & 0x20)) magnet_stu[i] = offline;
+        if (error[i] != 0 || !(data[i] & 0x20)) magnet_stu[i] = offline;
         else
         {
             if      (data[i] & 0x10) magnet_stu[i] = low;
@@ -324,21 +324,23 @@ void AS5600_soft_IIC_many::updata_stu()
     }
 }
 
-void AS5600_soft_IIC_many::updata_angle()
+uint8_t AS5600_soft_IIC_many::updata_angle()
 {
     read_reg16(AS5600_raw_angle);
+    uint8_t valid = 0u;
 
     for (int i = 0; i < numbers; i++)
     {
-        if (error[i] == 0)
+        if (error[i] == 0 && data[i] <= 4095u)
         {
+            valid |= (uint8_t)(1u << i);
             raw_angle[i] = data[i];
             online[i] = true;
         }
         else
         {
-            raw_angle[i] = 0;
             online[i] = false;
         }
     }
+    return valid;
 }

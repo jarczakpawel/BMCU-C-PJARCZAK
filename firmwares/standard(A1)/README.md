@@ -34,8 +34,7 @@ ____  __  __   ____  _   _
 
 - After "fully in" is confirmed, the BMCU feeds about 12 cm (120 mm) of filament forward.
 - This completes the full pass through the BMCU so the filament is seated and ready for printing.
-- During this feed it monitors the buffer position. If the filament snags on the buffer housing or the
-**PTFE tube edge (buffer rises too much), it protects the mechanism:**
+- During this feed it monitors the buffer position. If the filament snags on the buffer housing or the PTFE tube edge (buffer rises too much), it protects the mechanism:
   - retracts to a safe buffer position,
   - tries again (up to 2 retries).
 - On the 3rd snag (final failure) it retracts further, backs the filament out, and stops. Manual intervention is required.
@@ -47,11 +46,11 @@ ____  __  __   ____  _   _
 
 ---
 
-> All modifications by Pawel Jarczak
-> Also thanks to everyone on Reddit who tested this firmware on many different BMCU 370C builds.
+> All modifications by Pawel Jarczak  
+> Also thanks to everyone on Reddit who tested this firmware on many different BMCU 370C builds.  
 > Special thanks to Remote-Trash4593 (Reddit) for the huge effort: extensive testing + detailed documentation.
 
-> May compatibility with BambuLab last as long as possible.
+> May compatibility with BambuLab last as long as possible.  
 > If they ever block this last lifeboat:
 > - We should sell our printers and switch brands, defending our right to ownership and choice.
 > - When many of us bought these printers, BMCU was supported without restrictions; limits appeared only after purchase.

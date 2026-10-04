@@ -9,7 +9,7 @@
 #include "ch32v20x_misc.h"
 
 /* ===== IRQ ===== */
-void USART3_IRQHandler(void) __attribute__((interrupt("WCH-Interrupt-fast")));
+extern "C" void USART3_IRQHandler(void) __attribute__((interrupt("WCH-Interrupt-fast")));
 void USART3_IRQHandler(void)
 {
     if (USART_GetITStatus(USART3, USART_IT_RXNE) != RESET)

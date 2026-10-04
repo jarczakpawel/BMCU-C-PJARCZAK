@@ -1,6 +1,7 @@
 #pragma once
 #include <stdint.h>
 #include <stdbool.h>
+#include "ams_addressing.h"
 
 void Motion_control_init();
 void Motion_control_set_PWM(uint8_t CHx, int PWM);
@@ -18,11 +19,6 @@ extern int8_t  MC_PULL_POLARITY[4];
 extern float   MC_DM_KEY_NONE_THRESH[4];
 extern bool    filament_channel_inserted[4];
 
-// platformio.ini: -DBAMBU_BUS_AMS_NUM
-#ifndef BAMBU_BUS_AMS_NUM
-#define BAMBU_BUS_AMS_NUM 0
-#endif
-
 // platformio.ini: -DAMS_RETRACT_LEN
 #ifndef AMS_RETRACT_LEN
 #define AMS_RETRACT_LEN 0.2f
@@ -39,13 +35,11 @@ extern bool    filament_channel_inserted[4];
 #endif
 
 #ifndef motion_control_ams_num
-#define motion_control_ams_num BAMBU_BUS_AMS_NUM
+#define motion_control_ams_num BMCU_LOCAL_AMS_INDEX
 #endif
 
 #ifndef motion_control_pull_back_distance
 #define motion_control_pull_back_distance AMS_RETRACT_LEN
 #endif
 
-#if (BAMBU_BUS_AMS_NUM < 0) || (BAMBU_BUS_AMS_NUM > 3)
-#error "BAMBU_BUS_AMS_NUM must be in range 0..3"
-#endif
+bool Motion_control_filament_present(uint8_t ch);

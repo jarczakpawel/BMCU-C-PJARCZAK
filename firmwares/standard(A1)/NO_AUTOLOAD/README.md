@@ -32,11 +32,11 @@ No other behavior changes - this option only affects the front LED.
 
 ---
 
-> All modifications by Pawel Jarczak
-> Also thanks to everyone on Reddit who tested this firmware on many different BMCU 370C builds.
+> All modifications by Pawel Jarczak  
+> Also thanks to everyone on Reddit who tested this firmware on many different BMCU 370C builds.  
 > Special thanks to Remote-Trash4593 (Reddit) for the huge effort: extensive testing + detailed documentation.
 
-> May compatibility with BambuLab last as long as possible.
+> May compatibility with BambuLab last as long as possible.  
 > If they ever block this last lifeboat:
 > - We should sell our printers and switch brands, defending our right to ownership and choice.
 > - When many of us bought these printers, BMCU was supported without restrictions; limits appeared only after purchase.

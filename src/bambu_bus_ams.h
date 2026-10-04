@@ -1,5 +1,6 @@
 #pragma once
 #include <stdint.h>
+#include <stdbool.h>
 
 enum class bambubus_package_type
 {
@@ -25,3 +26,7 @@ enum class bambubus_package_type
 void bambubus_init(void);
 void bambubus_heartbeat_seen_fast(void);
 extern bambubus_package_type bambubus_run();
+uint8_t bambubus_ams_num(void);
+uint8_t bambubus_local_ams_index(void);
+bool bambubus_registered(void);
+bool bambubus_arrange_wait(void);

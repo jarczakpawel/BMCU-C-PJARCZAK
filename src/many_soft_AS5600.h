@@ -25,7 +25,7 @@ public:
 
     // API
     void updata_stu();
-    void updata_angle();
+    uint8_t updata_angle();
 
     // Public (1:1)
     bool*               online;       // [numbers]

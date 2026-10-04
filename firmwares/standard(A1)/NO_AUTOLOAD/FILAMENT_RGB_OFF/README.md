@@ -6,69 +6,42 @@ ____  __  __   ____  _   _
 
 ## Which firmware folder should I choose here?
 
-**Choose between:** SOLO, AMS_A, AMS_B, AMS_C, AMS_D.
+**Choose between:** AMS_AUTO, AMS_A, AMS_B, AMS_C, AMS_D.
 
 ---
 
-### SOLO firmware
+### AMS_AUTO - recommended
 
-**Example file:**
-- solo_0.095f.bin
+- Recommended for new installations.
+- Works like the original Bambu AMS addressing system.
+- BMCU units are enumerated automatically and receive their AMS number automatically.
+- Use this option unless AMS_AUTO does not work correctly with your setup.
 
-This firmware is intended for single-BMCU (SOLO) operation.
-Recommended for single-BMCU setups.
+### AMS_A / AMS_B / AMS_C / AMS_D - legacy
 
-**Filament retraction length:**
-- 0.095 m = 9.5 cm
-
-### AMS_A / AMS_B / AMS_C / AMS_D firmware
-
-**These firmware versions are intended for:**
-- multi-BMCU setups and longer filament retraction distances.
-
-If you have ONLY ONE BMCU but you need longer retraction than SOLO provides,
-use AMS_A instead of SOLO.
+- Old manually assigned AMS slot variants.
+- Use them only if AMS_AUTO does not work correctly with your setup.
+- Each BMCU must use a different slot: AMS_A, AMS_B, AMS_C or AMS_D.
 
 ### Retraction length in filenames
 
+Every AMS variant supports all available retraction lengths, including 9.5 cm.
+
 **Examples:**
-- ams_a_0.10f.bin  -> 0.10 m = 10 cm
-- ams_a_0.50f.bin  -> 0.50 m = 50 cm
-The number is the retraction length in meters.
+- `ams_auto_0.095f.bin` - 0.095 m = 9.5 cm
+- `ams_a_0.095f.bin` - 0.095 m = 9.5 cm
+- `ams_auto_0.50f.bin` - 0.50 m = 50 cm
+- `ams_a_0.50f.bin` - 0.50 m = 50 cm
 
-### Multi-BMCU setups (2-4 unit)
-
-**Each BMCU must have a different AMS slot firmware:**
-- 1st unit: AMS_A
-- 2nd unit: AMS_B
-- 3rd unit: AMS_C
-- 4th unit: AMS_D
-
-### How to choose the correct retraction length (simple)
-
-Retraction must be calculated from the end of the AMS splitter inside the printer
-(the plastic AMS part where up to four PTFE tubes enter).
-
-**Example:**
-- Distance to the end of the AMS splitter: about 9.0 cm
-- SOLO retracts about 9.5 cm, so it goes about 0.5 cm past the splitter
-
-**When calculating your own retraction length:**
-- Always measure from the end of the AMS splitter
-- Add a small safety margin so the filament clears the splitter
-
-### Note for P1 printers
-
-- Many P1 setups use longer PTFE paths, so a longer retraction is often needed.
-- Even with a single BMCU, AMS_A is often a better choice than SOLO (pick your needed length).
+Measure the required retraction from the end of the AMS splitter and add a small safety margin so the filament fully clears the splitter.
 
 ---
 
-> All modifications by Pawel Jarczak
-> Also thanks to everyone on Reddit who tested this firmware on many different BMCU 370C builds.
+> All modifications by Pawel Jarczak  
+> Also thanks to everyone on Reddit who tested this firmware on many different BMCU 370C builds.  
 > Special thanks to Remote-Trash4593 (Reddit) for the huge effort: extensive testing + detailed documentation.
 
-> May compatibility with BambuLab last as long as possible.
+> May compatibility with BambuLab last as long as possible.  
 > If they ever block this last lifeboat:
 > - We should sell our printers and switch brands, defending our right to ownership and choice.
 > - When many of us bought these printers, BMCU was supported without restrictions; limits appeared only after purchase.

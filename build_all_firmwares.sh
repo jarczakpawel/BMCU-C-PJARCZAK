@@ -20,15 +20,19 @@ OUT_GUIDE="which_to_choose.txt"
 [[ -f "${TXT_RGB}" ]]      || { echo "ERROR: brak ${TXT_RGB}"; exit 1; }
 [[ -f "${TXT_SLOTS}" ]]    || { echo "ERROR: brak ${TXT_SLOTS}"; exit 1; }
 
-MODE_A1_DIR="standard(A1)"
-MODE_P1S_DIR="high_force_load(P1S)"
-
-SOLO_RETRACT="0.095f"
 RETRACTS=(
+  "0.095"
   "0.10"
   "0.20" "0.25" "0.30" "0.35" "0.40"
   "0.45" "0.50" "0.55" "0.60" "0.65"
   "0.70" "0.75" "0.80" "0.85" "0.90"
+)
+
+# dir|P1S|SOFT_LOAD
+MODES=(
+  "soft_load(A1)|0|1"
+  "standard(A1)|0|0"
+  "high_force_load(P1S)|1|0"
 )
 
 build_and_copy() {
@@ -38,14 +42,16 @@ build_and_copy() {
   local dm="$4"
   local rgb="$5"
   local p1s="$6"
+  local soft_load="$7"
 
-  echo "=== BUILD: P1S=${p1s} DM=${dm} RGB=${rgb} AMS_NUM=${ams_num} RETRACT=${retract_len} -> ${out_path}"
+  echo "=== BUILD: P1S=${p1s} SOFT_LOAD=${soft_load} DM=${dm} RGB=${rgb} AMS_NUM=${ams_num} RETRACT=${retract_len} -> ${out_path}"
 
   BAMBU_BUS_AMS_NUM="${ams_num}" \
   AMS_RETRACT_LEN="${retract_len}" \
   BMCU_DM_TWO_MICROSWITCH="${dm}" \
   BMCU_ONLINE_LED_FILAMENT_RGB="${rgb}" \
   DBMCU_P1S="${p1s}" \
+  BMCU_SOFT_LOAD="${soft_load}" \
   pio run -e "${PIO_ENV}"
 
   local src=".pio/build/${PIO_ENV}/firmware.bin"
@@ -57,15 +63,10 @@ build_and_copy() {
 
 rm -rf "${OUT_DIR}"
 mkdir -p "${OUT_DIR}"
-
 cp -f "${TXT_MODE}" "${OUT_DIR}/${OUT_GUIDE}"
 
-for p1s in 0 1; do
-  if [[ "${p1s}" == "1" ]]; then
-    mode_dir="${MODE_P1S_DIR}"
-  else
-    mode_dir="${MODE_A1_DIR}"
-  fi
+for mode_spec in "${MODES[@]}"; do
+  IFS='|' read -r mode_dir p1s soft_load <<< "${mode_spec}"
 
   mode_base="${OUT_DIR}/${mode_dir}"
   mkdir -p "${mode_base}"
@@ -90,34 +91,34 @@ for p1s in 0 1; do
       fi
 
       base="${dm_base}/${rgb_dir}"
-      mkdir -p "${base}"/{SOLO,AMS_A,AMS_B,AMS_C,AMS_D}
+      mkdir -p "${base}"/{AMS_AUTO,AMS_A,AMS_B,AMS_C,AMS_D}
       cp -f "${TXT_SLOTS}" "${base}/${OUT_GUIDE}"
 
-      build_and_copy "${base}/SOLO/solo_${SOLO_RETRACT}.bin" 0 "${SOLO_RETRACT}" "${dm}" "${rgb}" "${p1s}"
-
-      for slot in A B C D; do
+      for slot in AUTO A B C D; do
         case "${slot}" in
-          A) ams_num=0 ;;
-          B) ams_num=1 ;;
-          C) ams_num=2 ;;
-          D) ams_num=3 ;;
+          AUTO) ams_num=4; slot_dir="AMS_AUTO"; file_prefix="ams_auto" ;;
+          A)    ams_num=0; slot_dir="AMS_A";    file_prefix="ams_a" ;;
+          B)    ams_num=1; slot_dir="AMS_B";    file_prefix="ams_b" ;;
+          C)    ams_num=2; slot_dir="AMS_C";    file_prefix="ams_c" ;;
+          D)    ams_num=3; slot_dir="AMS_D";    file_prefix="ams_d" ;;
         esac
 
         for r in "${RETRACTS[@]}"; do
           build_and_copy \
-            "${base}/AMS_${slot}/ams_${slot,,}_${r}f.bin" \
+            "${base}/${slot_dir}/${file_prefix}_${r}f.bin" \
             "${ams_num}" \
             "${r}f" \
             "${dm}" \
             "${rgb}" \
-            "${p1s}"
+            "${p1s}" \
+            "${soft_load}"
         done
       done
     done
   done
 done
 
-python3 - "${OUT_DIR}" > "${OUT_DIR}/manifest.txt" <<'PY'
+python3 - "${OUT_DIR}" > "${OUT_DIR}/manifest.txt" <<'PYMAN'
 import sys, os, zlib, hashlib
 
 root = sys.argv[1]
@@ -149,7 +150,7 @@ out = sys.stdout
 out.write("# format: SHA256_HEX CRC32_HEX SIZE_BYTES REL_PATH\n")
 for rel, sha256_hex, crc32_hex, size in entries:
     out.write(f"{sha256_hex} {crc32_hex} {size} {rel}\n")
-PY
+PYMAN
 
 echo
 echo "DONE. Wyniki w: ${OUT_DIR}/"

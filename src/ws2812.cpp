@@ -1,6 +1,7 @@
 #include "ws2812.h"
 #include "hal/time_hw.h"
 #include "hal/irq_wch.h"
+#include "_bus_hardware.h"
 
 // WS2812B timing (datasheet):
 //  - TH+TL = 1.25us ±600ns
@@ -102,7 +103,7 @@ void WS2812_class::RST(void)
 
 void WS2812_class::updata(void)
 {
-    if (!dirty) return;
+    if (!dirty || time_hw_slow || !bus_background_ready()) return;
 
     GPIO_TypeDef* const p = port;
     const uint32_t      m = (uint32_t)pin;
