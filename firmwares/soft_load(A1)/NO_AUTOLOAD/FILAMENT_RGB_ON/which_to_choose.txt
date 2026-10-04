@@ -1,0 +1,45 @@
+ ____  __  __   ____  _   _
+| __ )|  \/  | / ___|| | | |
+|  _ \| |\/| || |    | | | |
+| |_) | |  | || |___ | |_| |
+|____/|_|  |_| \____| \___/
+
+
+Which firmware folder should I choose here?
+Choose between: AMS_AUTO, AMS_A, AMS_B, AMS_C, AMS_D.
+
+--------------------------------------------------------------------------
+
+AMS_AUTO - recommended
+- Recommended for new installations.
+- Works like the original Bambu AMS addressing system.
+- BMCU units are enumerated automatically and receive their AMS number automatically.
+- Use this option unless AMS_AUTO does not work correctly with your setup.
+
+AMS_A / AMS_B / AMS_C / AMS_D - legacy
+- Old manually assigned AMS slot variants.
+- Use them only if AMS_AUTO does not work correctly with your setup.
+- Each BMCU must use a different slot: AMS_A, AMS_B, AMS_C or AMS_D.
+
+Retraction length in filenames
+- Every AMS variant supports all available retraction lengths, including 9.5 cm.
+- ams_auto_0.095f.bin -> 0.095 m = 9.5 cm
+- ams_a_0.095f.bin -> 0.095 m = 9.5 cm
+- ams_auto_0.50f.bin -> 0.50 m = 50 cm
+- ams_a_0.50f.bin -> 0.50 m = 50 cm
+
+Measure the required retraction from the end of the AMS splitter and add a small safety margin so the filament fully clears the splitter.
+
+--------------------------------------------------------------------------
+
+[::] All modifications by Pawel Jarczak
+[::] Also thanks to everyone on Reddit who tested this firmware on many different BMCU 370C builds.
+[::] Special thanks to Remote-Trash4593 (Reddit) for the huge effort: extensive testing + detailed documentation.
+
+[::] May compatibility with BambuLab last as long as possible.
+[::] If they ever block this last lifeboat:
+[::] - We should sell our printers and switch brands, defending our right to ownership and choice.
+[::] - When many of us bought these printers, BMCU was supported without restrictions; limits appeared only after purchase.
+[::] - BMCU was a key reason to buy; for many people AMS is too big, too expensive, and still has plenty of issues.
+[::] - The market is full of amazing 3D printers that do not lock users out - and for many of us, a 3D printer is a critical work tool.
+[::] - Open BMCU firmware gives us real freedom, and we should demand that freedom be respected.

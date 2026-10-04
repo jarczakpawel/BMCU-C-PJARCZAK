@@ -1,0 +1,64 @@
+ ____  __  __   ____  _   _
+| __ )|  \/  | / ___|| | | |
+|  _ \| |\/| || |    | | | |
+| |_) | |  | || |___ | |_| |
+|____/|_|  |_| \____| \___/
+
+
+Which variant should I choose?
+Choose between: AUTOLOAD and NO_AUTOLOAD.
+
+AUTOLOAD
+- Designed for BMCU 370C DM (dual microswitch).
+- Can be used on ANY BMCU 370C version (including single-switch boards).
+  On single-switch boards, Stage 1 is manual, Stage 2 works the same.
+
+NO_AUTOLOAD
+- No autoload. You must push the filament manually until you can see it in the PTFE tube.
+- Safer/simpler logic, but requires more work during loading.
+- Can be used on ANY BMCU 370C version (dual-switch DM and single-switch boards).
+
+
+--------------------------------------------------------------------------
+
+
+How AUTOLOAD works
+
+Stage 1 (DM only: guided entry through the extruder)
+- DM boards have TWO microswitches (one before the extruder + one after the extruder).
+- As soon as the filament touches the BMCU and triggers the first switch, AUTOLOAD starts.
+- You may need to push the filament lightly by hand until the extruder gears "grab" it.
+- Then the BMCU feeds the filament automatically through the extruder until the SECOND switch
+  (behind the extruder) is reached. This is the "fully detected / fully in" condition (both switches).
+
+Stage 2 (Print-ready feed with protection)
+- After "fully in" is confirmed, the BMCU feeds about 12 cm (120 mm) of filament forward.
+- This completes the full pass through the BMCU so the filament is seated and ready for printing.
+- During this feed it monitors the buffer position. If the filament snags on the buffer housing or the
+  PTFE tube edge (buffer rises too much), it protects the mechanism:
+  - retracts to a safe buffer position,
+  - tries again (up to 2 retries).
+- On the 3rd snag (final failure) it retracts further, backs the filament out, and stops.
+  Manual intervention is required.
+
+Single-switch boards
+- AUTOLOAD can still be used, but Stage 1 must be done manually:
+  you need to load the filament into the extruder by hand because there is no second switch
+  (behind the extruder) to confirm the "fully in" condition.
+- Once the filament is fully in the extruder, Stage 2 works the same.
+
+
+--------------------------------------------------------------------------
+
+
+[::] All modifications by Pawel Jarczak
+[::] Also thanks to everyone on Reddit who tested this firmware on many different BMCU 370C builds.
+[::] Special thanks to Remote-Trash4593 (Reddit) for the huge effort: extensive testing + detailed documentation.
+
+[::] May compatibility with BambuLab last as long as possible.
+[::] If they ever block this last lifeboat:
+[::] - We should sell our printers and switch brands, defending our right to ownership and choice.
+[::] - When many of us bought these printers, BMCU was supported without restrictions; limits appeared only after purchase.
+[::] - BMCU was a key reason to buy; for many people AMS is too big, too expensive, and still has plenty of issues.
+[::] - The market is full of amazing 3D printers that do not lock users out - and for many of us, a 3D printer is a critical work tool.
+[::] - Open BMCU firmware gives us real freedom, and we should demand that freedom be respected.

@@ -1,0 +1,50 @@
+ ____  __  __   ____  _   _
+| __ )|  \/  | / ___|| | | |
+|  _ \| |\/| || |    | | | |
+| |_) | |  | || |___ | |_| |
+|____/|_|  |_| \____| \___/
+
+
+Which variant should I choose?
+Choose between: FILAMENT_RGB_ON and FILAMENT_RGB_OFF.
+
+FILAMENT_RGB_ON
+- After a filament is loaded, the front LED (per channel) lights up in the selected filament color.
+- The LED still reacts to buffer status (pressure) as usual.
+
+FILAMENT_RGB_OFF
+- Filament color display is disabled.
+- The front LED only indicates buffer status:
+  - centered/neutral position (when no filament is loaded),
+  - buffer extremes (too much / too little pressure).
+
+
+--------------------------------------------------------------------------
+
+
+How FILAMENT_RGB_ON works
+
+- When the firmware considers the filament "loaded" on a channel, the front LED for that channel is set
+  to the filament color reported/stored for that slot.
+- RGB LEDs can vary between modules: each LED may have different brightness balance for Red/Green/Blue,
+  so the same filament color may look slightly different on different channels/modules.
+- The colors can be quite bright, which may be distracting (especially at night in a room).
+  If you want a calm/no-light setup, choose FILAMENT_RGB_OFF instead.
+
+No other behavior changes - this option only affects the front LED.
+
+
+--------------------------------------------------------------------------
+
+
+[::] All modifications by Pawel Jarczak
+[::] Also thanks to everyone on Reddit who tested this firmware on many different BMCU 370C builds.
+[::] Special thanks to Remote-Trash4593 (Reddit) for the huge effort: extensive testing + detailed documentation.
+
+[::] May compatibility with BambuLab last as long as possible.
+[::] If they ever block this last lifeboat:
+[::] - We should sell our printers and switch brands, defending our right to ownership and choice.
+[::] - When many of us bought these printers, BMCU was supported without restrictions; limits appeared only after purchase.
+[::] - BMCU was a key reason to buy; for many people AMS is too big, too expensive, and still has plenty of issues.
+[::] - The market is full of amazing 3D printers that do not lock users out - and for many of us, a 3D printer is a critical work tool.
+[::] - Open BMCU firmware gives us real freedom, and we should demand that freedom be respected.

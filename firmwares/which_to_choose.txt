@@ -1,0 +1,65 @@
+ ____  __  __   ____  _   _
+| __ )|  \/  | / ___|| | | |
+|  _ \| |\/| || |    | | | |
+| |_) | |  | || |___ | |_| |
+|____/|_|  |_| \____| \___/
+
+
+Which firmware folder should I choose here?
+Choose between: soft_load(A1), standard(A1) or high_force_load(P1S)
+
+--------------------------------------------------------------------------
+
+standard(A1)
+- Recommended for: Bambu Lab A1 (and most other setups) where filament does NOT require high pushing force to load.
+- Choose this if: the PTFE tube between the BMCU and the printer is short and relatively straight (low friction).
+- Goal: normal load force and standard pressure behavior.
+
+high_force_load(P1S)
+- Recommended for: Bambu Lab P1S (and similar printers/setups) where PTFE routing is long and has multiple bends.
+- This mode uses: much stronger motor force during filament loading, and slightly higher pressure/holding behavior during printing to compensate for higher friction.
+- Choose this if:
+  - you have a P1S (typical long, curved PTFE path), or
+  - your PTFE path is long/complex (many bends), even on A1, or
+  - you experience loading problems such as rejected/failed load events (most commonly caused by too little pushing force during loading).
+
+soft_load(A1)
+- Recommended for: A1 / A1 Mini users only.
+- This mode uses: lower filament loading force than standard(A1).
+- Designed for: some BMCU units that use weaker spring variants and therefore do not hold the filament strongly enough during loading, which can cause clicking/grinding noises.
+- Choose this if:
+  - you use an A1 or A1 Mini, and
+  - you hear grinding/clicking during filament loading, and
+  - you want to reduce BMCU wear.
+- Important:
+  - The best solution is still to replace the lever pressure spring with a stronger one.
+  - If needed, you can use this firmware package with reduced loading force instead.
+- Warning:
+  - This mode may cause loading issues, including the printer rejecting the filament because the pushing force is too weak.
+  - If that happens, please do NOT report loading problems when using this firmware set.
+  - In such a case, switch back to standard(A1) and use a stronger pressure spring.
+- Additional note:
+  - Some users have absolutely no loading problems with this version.
+  - In general, BMCU is less stressed on this mode, so if everything works correctly, it is perfectly fine to keep using it.
+  - For example, on my own A1 Mini this mode works extremely well, and this is the version I personally use.
+
+If you're unsure:
+- Start with standard(A1).
+- If loading is inconsistent or gets rejected, switch to high_force_load(P1S).
+- If you use an A1 / A1 Mini and hear grinding during loading, try soft_load(A1).
+
+--------------------------------------------------------------------------
+
+
+[::] All modifications by Pawel Jarczak
+[::] Also thanks to everyone on Reddit who tested this firmware on many different BMCU 370C builds.
+[::] Special thanks to Remote-Trash4593 (Reddit) for the huge effort: extensive testing + detailed documentation.
+
+[::] May compatibility with BambuLab last as long as possible.
+[::] If they ever block this last lifeboat:
+[::] - We should sell our printers and switch brands, defending our right to ownership and choice.
+[::] - When many of us bought these printers, BMCU was supported without restrictions; limits appeared only after purchase.
+[::] - BMCU was a key reason to buy; for many people AMS is too big, too expensive, and still has plenty of issues.
+[::] - The market is full of amazing 3D printers that do not lock users out - and for many of us, a 3D printer is a critical work tool.
+[::] - Open BMCU firmware gives us real freedom, and we should demand that freedom be respected.
+
