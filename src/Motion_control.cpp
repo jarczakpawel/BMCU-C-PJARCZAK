@@ -268,10 +268,19 @@ static constexpr uint32_t DM_AUTO_S2_TARGET_COUNT = distance_counts(DM_AUTO_S2_T
 static uint64_t dm_loaded_drop_t0_ms[4] = {0ull,0ull,0ull,0ull};
 #endif
 
+#if BMCU_REVERSE_MANUAL_BUFFER
+// Idle gesture: press buffer in, then release to center.  While the unload
+// motor is running, a high buffer is the opposite excursion and aborts it.
+static constexpr float    AUTO_UNLOAD_START_PCT      = 20.0f;
+static constexpr float    AUTO_UNLOAD_NEUTRAL_LO_PCT = 45.0f;
+static constexpr float    AUTO_UNLOAD_NEUTRAL_HI_PCT = 55.0f;
+static constexpr float    AUTO_UNLOAD_ABORT_PCT      = 65.0f;
+#else
 static constexpr float    AUTO_UNLOAD_START_PCT      = 80.0f;
 static constexpr float    AUTO_UNLOAD_NEUTRAL_LO_PCT = 45.0f;
 static constexpr float    AUTO_UNLOAD_NEUTRAL_HI_PCT = 55.0f;
 static constexpr float    AUTO_UNLOAD_ABORT_PCT      = 35.0f;
+#endif
 static constexpr uint64_t AUTO_UNLOAD_ARM_MS         = 1000ull;
 static constexpr uint64_t AUTO_UNLOAD_MAX_MS         = 15000ull;
 static constexpr uint64_t AUTO_UNLOAD_EMPTY_MS       = 1500ull;
@@ -283,6 +292,12 @@ static uint8_t  auto_unload_blocked[4]      = {0,0,0,0};
 static uint64_t auto_unload_arm_t0_ms[4]    = {0ull,0ull,0ull,0ull};
 static uint64_t auto_unload_active_t0_ms[4] = {0ull,0ull,0ull,0ull};
 static uint64_t auto_unload_empty_t0_ms[4]  = {0ull,0ull,0ull,0ull};
+#if BMCU_REVERSE_MANUAL_BUFFER
+// A reverse manual unload starts with the buffer pressed low.  Do not let
+// that same low hold enter the all-empty calibration-reset path until the
+// buffer has explicitly returned to center.
+static uint8_t reverse_unload_reset_block[4] = {0u,0u,0u,0u};
+#endif
 
 bool filament_channel_inserted[4]       = {false, false, false, false}; // czy kanał fizycznie wpięty
 
@@ -533,10 +548,84 @@ static inline void MC_PULL_ONLINE_read(uint32_t now_ticks)
             gst_active[i] = false;
         }
 
+        // Calculate the physical key state first.  The reverse gesture must not
+        // be recognized while filament is already present, autoload/retry is
+        // active, an unload is active, or the host owns the channel.
+        const uint8_t phys = dm_key_to_state(i, keyv[i]);
+        auto &host_ams = ams[motion_control_ams_num];
+        const bool reverse_gesture_idle =
+            (phys == 0u) &&
+            (dm_auto_state[i] == DM_AUTO_IDLE) &&
+            !dm_fail_latch[i] &&
+            (dm_autoload_gate[i] == 0u) &&
+            !auto_unload_active[i] &&
+            (host_ams.filament[i].motion == _filament_motion::idle);
+
         if (!gst_active[i])
         {
             const float pct_f = pull_v_to_percent_f(i, MC_PULL_stu_raw[i]);
 
+#if BMCU_REVERSE_MANUAL_BUFFER
+            // State sequence: stable center -> pull out and hold -> release to
+            // center.  Only that final center return arms gesture load.  Once
+            // autoload starts, this recognizer no longer interprets a high
+            // buffer as a manual command; active-feed logic keeps using high
+            // positions as resistance/jam feedback.
+            if (!reverse_gesture_idle)
+            {
+                gst_step[i] = 0u;
+                gst_t0_ticks[i] = 0u;
+            }
+            else if (gst_step[i] == 0u)
+            {
+                const bool center = (pct_f >= 45.0f) && (pct_f <= 55.0f);
+                if (!center)
+                {
+                    gst_t0_ticks[i] = 0u;
+                }
+                else
+                {
+                    if (gst_t0_ticks[i] == 0u) gst_t0_ticks[i] = now_ticks;
+                    if ((uint32_t)(now_ticks - gst_t0_ticks[i]) >= T100)
+                        gst_step[i] = 1u;
+                }
+            }
+            else if (gst_step[i] == 1u)
+            {
+                if (pct_f > 90.0f)
+                {
+                    gst_t0_ticks[i] = now_ticks;
+                    gst_step[i] = 2u;
+                }
+            }
+            else if (gst_step[i] == 2u)
+            {
+                if (pct_f < 85.0f)
+                {
+                    gst_step[i] = 0u;
+                    gst_t0_ticks[i] = 0u;
+                }
+                else if ((uint32_t)(now_ticks - gst_t0_ticks[i]) >= T100)
+                {
+                    gst_step[i] = 3u;
+                }
+            }
+            else
+            {
+                if ((uint32_t)(now_ticks - gst_t0_ticks[i]) > T2000)
+                {
+                    gst_step[i] = 0u;
+                    gst_t0_ticks[i] = 0u;
+                }
+                else if (pct_f >= 45.0f && pct_f <= 55.0f)
+                {
+                    gst_active[i] = true;
+                    gst_act_t0_ticks[i] = now_ticks;
+                    gst_step[i] = 0u;
+                    gst_t0_ticks[i] = 0u;
+                }
+            }
+#else
             if (gst_step[i] == 0)
             {
                 if (pct_f < 10.0f) { gst_step[i] = 1; gst_t0_ticks[i] = now_ticks; }
@@ -562,6 +651,7 @@ static inline void MC_PULL_ONLINE_read(uint32_t now_ticks)
                     gst_step[i] = 0;
                 }
             }
+#endif
         }
 
         if (gst_active[i])
@@ -570,8 +660,8 @@ static inline void MC_PULL_ONLINE_read(uint32_t now_ticks)
             else if ((uint32_t)(now_ticks - gst_act_t0_ticks[i]) > T5500) gst_active[i] = false;
         }
 
-        const uint8_t phys = dm_key_to_state(i, keyv[i]);
         uint8_t state = phys;
+
 
         if (gst_active[i] && (phys == 0u)) state = 2u;
 
@@ -2647,7 +2737,25 @@ static void motor_motion_run(int error, uint64_t time_now, uint32_t now_ticks)
             const float pct = MC_PULL_pct_f[i];
             const uint8_t ks = MC_ONLINE_key_stu[i];
 
+#if BMCU_REVERSE_MANUAL_BUFFER
+            if (auto_unload_arm[i] || auto_unload_active[i])
+            {
+                reverse_unload_reset_block[i] = 1u;
+            }
+            else if ((pct >= AUTO_UNLOAD_NEUTRAL_LO_PCT) &&
+                     (pct <= AUTO_UNLOAD_NEUTRAL_HI_PCT))
+            {
+                reverse_unload_reset_block[i] = 0u;
+            }
+#endif
+
+#if BMCU_REVERSE_MANUAL_BUFFER
+            // Reverse unload is a low-buffer release-to-center gesture.  It
+            // requires filament so an empty low hold cannot drive the motor.
+            if ((pct <= AUTO_UNLOAD_START_PCT) && (ks != 0u))
+#else
             if (pct >= AUTO_UNLOAD_START_PCT)
+#endif
             {
                 auto_unload_blocked[i] = 0u;
 
@@ -2684,7 +2792,14 @@ static void motor_motion_run(int error, uint64_t time_now, uint32_t now_ticks)
 
             if (auto_unload_active[i])
             {
-                if (pct < AUTO_UNLOAD_ABORT_PCT)
+#if BMCU_REVERSE_MANUAL_BUFFER
+                // While reverse-unloading, the dangerous opposite excursion is
+                // high buffer travel, matching the original protection concept.
+                const bool unload_abort = (pct > AUTO_UNLOAD_ABORT_PCT);
+#else
+                const bool unload_abort = (pct < AUTO_UNLOAD_ABORT_PCT);
+#endif
+                if (unload_abort)
                 {
                     auto_unload_active[i]       = 0u;
                     auto_unload_active_t0_ms[i] = 0ull;
@@ -2721,6 +2836,9 @@ static void motor_motion_run(int error, uint64_t time_now, uint32_t now_ticks)
         }
 
         const bool manual_empty_pull =
+#if BMCU_REVERSE_MANUAL_BUFFER
+            false;
+#else
 #if BMCU_DM_TWO_MICROSWITCH
             !dm_fail_latch[i] &&
 #endif
@@ -2728,6 +2846,7 @@ static void motor_motion_run(int error, uint64_t time_now, uint32_t now_ticks)
             (MC_ONLINE_key_stu[i] == 0u) &&
             (MC_PULL_pct_f[i] > 80.0f) &&
             (auto_unload_active[i] == 0u);
+#endif
 
         if (auto_unload_active[i])
         {
@@ -2887,6 +3006,17 @@ void Motion_control_run(int error)
     if ((error <= 0) && all_no_filament())
     {
         int pressed = -1;
+#if BMCU_REVERSE_MANUAL_BUFFER
+        bool reverse_reset_blocked = false;
+        for (uint8_t ch = 0; ch < kChCount; ch++)
+        {
+            if (reverse_unload_reset_block[ch])
+            {
+                reverse_reset_blocked = true;
+                break;
+            }
+        }
+#endif
 
         for (uint8_t ch = 0; ch < kChCount; ch++)
         {
@@ -2900,7 +3030,11 @@ void Motion_control_run(int error)
                 (v <= (1.65f - CAL_RESET_V_DELTA)) ||
                 (v <= (MC_PULL_V_MIN[ch] + CAL_RESET_NEAR_MIN));
 
+#if BMCU_REVERSE_MANUAL_BUFFER
+            if (hard_blue && !reverse_reset_blocked) { pressed = (int)ch; break; }
+#else
             if (hard_blue) { pressed = (int)ch; break; }
+#endif
         }
 
         uint32_t tpm = time_hw_tpms;
