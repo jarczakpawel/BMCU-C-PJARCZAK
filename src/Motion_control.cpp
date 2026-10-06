@@ -277,9 +277,9 @@ static constexpr float    AUTO_UNLOAD_NEUTRAL_HI_PCT = 55.0f;
 static constexpr float    AUTO_UNLOAD_ABORT_PCT      = 65.0f;
 static constexpr float    MANUAL_FEED_START_PCT      = 70.0f;
 static constexpr float    MANUAL_FEED_RELEASE_PCT    = 60.0f;
-static constexpr float    MANUAL_FEED_PWM            = 700.0f;
-static constexpr uint64_t MANUAL_FEED_MAX_MS         = 15000ull;
-static constexpr uint64_t MANUAL_FEED_STALL_MS       = 250ull;
+static constexpr float    MANUAL_FEED_PWM            = 800.0f;
+static constexpr uint64_t MANUAL_FEED_MAX_MS         = 30000ull;
+static constexpr uint64_t MANUAL_FEED_GEAR_STALL_MS  = 250ull;
 #else
 static constexpr float    AUTO_UNLOAD_START_PCT      = 80.0f;
 static constexpr float    AUTO_UNLOAD_NEUTRAL_LO_PCT = 45.0f;
@@ -303,6 +303,7 @@ static uint64_t auto_unload_empty_t0_ms[4]  = {0ull,0ull,0ull,0ull};
 // buffer has explicitly returned to center.
 static uint8_t reverse_unload_reset_block[4] = {0u,0u,0u,0u};
 static uint8_t manual_feed_lock[4] = {0u,0u,0u,0u};
+static uint8_t manual_feed_armed[4] = {1u,1u,1u,1u};
 static uint64_t manual_feed_start_ms[4] = {0ull,0ull,0ull,0ull};
 static uint64_t manual_feed_stall_t0_ms[4] = {0ull,0ull,0ull,0ull};
 static uint32_t manual_feed_last_count[4] = {0u,0u,0u,0u};
@@ -2849,13 +2850,18 @@ static void motor_motion_run(int error, uint64_t time_now, uint32_t now_ticks)
 
         bool manual_feed_run = false;
 
-        if (!manual_feed_allowed || (manual_pct < MANUAL_FEED_START_PCT))
+        // Arm only after the buffer has been released below the release band.
+        // This keeps a channel left parked at high position from self-starting,
+        // while the user still only has to pull out to feed.
+        if (manual_pct <= MANUAL_FEED_RELEASE_PCT)
         {
+            manual_feed_armed[i] = 1u;
+            manual_feed_lock[i] = 0u;
             manual_feed_start_ms[i] = 0ull;
             manual_feed_stall_t0_ms[i] = 0ull;
-            if (manual_pct <= MANUAL_FEED_RELEASE_PCT) manual_feed_lock[i] = 0u;
         }
-        else if (!manual_feed_lock[i])
+        else if (manual_feed_allowed && manual_feed_armed[i] && !manual_feed_lock[i] &&
+                 (manual_pct >= MANUAL_FEED_START_PCT))
         {
             const uint32_t count = encoder_count(i);
             if (manual_feed_start_ms[i] == 0ull)
@@ -2866,6 +2872,9 @@ static void motor_motion_run(int error, uint64_t time_now, uint32_t now_ticks)
             }
             else
             {
+                // AS5600 counts gearbox rotation, not direct filament travel.
+                // This timeout only protects a locked gearbox/motor; it cannot
+                // detect filament slip.  The user remains the manual-stop input.
                 const uint32_t moved = count_distance(count, manual_feed_last_count[i]);
                 if (moved >= distance_counts(0.002f))
                 {
@@ -2874,8 +2883,9 @@ static void motor_motion_run(int error, uint64_t time_now, uint32_t now_ticks)
                 }
 
                 const uint64_t elapsed = time_now - manual_feed_start_ms[i];
-                const uint64_t stall = time_now - manual_feed_stall_t0_ms[i];
-                if (elapsed >= MANUAL_FEED_MAX_MS || stall >= MANUAL_FEED_STALL_MS)
+                const uint64_t gear_stalled = time_now - manual_feed_stall_t0_ms[i];
+                if (elapsed >= MANUAL_FEED_MAX_MS ||
+                    gear_stalled >= MANUAL_FEED_GEAR_STALL_MS)
                 {
                     manual_feed_lock[i] = 1u;
                     manual_feed_start_ms[i] = 0ull;
@@ -2886,6 +2896,11 @@ static void motor_motion_run(int error, uint64_t time_now, uint32_t now_ticks)
                     manual_feed_run = true;
                 }
             }
+        }
+        else if (!manual_feed_allowed)
+        {
+            manual_feed_start_ms[i] = 0ull;
+            manual_feed_stall_t0_ms[i] = 0ull;
         }
 
         if (manual_feed_run)
