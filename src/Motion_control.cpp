@@ -269,12 +269,17 @@ static uint64_t dm_loaded_drop_t0_ms[4] = {0ull,0ull,0ull,0ull};
 #endif
 
 #if BMCU_REVERSE_MANUAL_BUFFER
-// Idle gesture: press buffer in, then release to center.  While the unload
-// motor is running, a high buffer is the opposite excursion and aborts it.
-static constexpr float    AUTO_UNLOAD_START_PCT      = 20.0f;
+// Simple reverse UX: hold low to unload, hold high to feed.  The unload keeps
+// the original bounded automatic-unload behavior after the user releases.
+static constexpr float    AUTO_UNLOAD_START_PCT      = 30.0f;
 static constexpr float    AUTO_UNLOAD_NEUTRAL_LO_PCT = 45.0f;
 static constexpr float    AUTO_UNLOAD_NEUTRAL_HI_PCT = 55.0f;
 static constexpr float    AUTO_UNLOAD_ABORT_PCT      = 65.0f;
+static constexpr float    MANUAL_FEED_START_PCT      = 70.0f;
+static constexpr float    MANUAL_FEED_RELEASE_PCT    = 60.0f;
+static constexpr float    MANUAL_FEED_PWM            = 700.0f;
+static constexpr uint64_t MANUAL_FEED_MAX_MS         = 15000ull;
+static constexpr uint64_t MANUAL_FEED_STALL_MS       = 250ull;
 #else
 static constexpr float    AUTO_UNLOAD_START_PCT      = 80.0f;
 static constexpr float    AUTO_UNLOAD_NEUTRAL_LO_PCT = 45.0f;
@@ -297,6 +302,10 @@ static uint64_t auto_unload_empty_t0_ms[4]  = {0ull,0ull,0ull,0ull};
 // that same low hold enter the all-empty calibration-reset path until the
 // buffer has explicitly returned to center.
 static uint8_t reverse_unload_reset_block[4] = {0u,0u,0u,0u};
+static uint8_t manual_feed_lock[4] = {0u,0u,0u,0u};
+static uint64_t manual_feed_start_ms[4] = {0ull,0ull,0ull,0ull};
+static uint64_t manual_feed_stall_t0_ms[4] = {0ull,0ull,0ull,0ull};
+static uint32_t manual_feed_last_count[4] = {0u,0u,0u,0u};
 #endif
 
 bool filament_channel_inserted[4]       = {false, false, false, false}; // czy kanał fizycznie wpięty
@@ -519,7 +528,7 @@ static inline void MC_PULL_ONLINE_read(uint32_t now_ticks)
 
     // --- Buffer Gesture Load  ---
     static uint32_t gst_t0_ticks[4]     = {0,0,0,0};
-    static uint8_t  gst_step[4]         = {0,0,0,0};      // 0=idle, 1=wait_low, 2=wait_return
+    static uint8_t  gst_step[4]         = {0,0,0,0};      // gesture detector state
     static bool     gst_active[4]       = {false,false,false,false};
     static uint32_t gst_act_t0_ticks[4] = {0,0,0,0};
 
@@ -527,7 +536,9 @@ static inline void MC_PULL_ONLINE_read(uint32_t now_ticks)
     if (!tpm) tpm = 1u;
 
     const uint32_t T100  = 100u  * tpm;
+#if !BMCU_REVERSE_MANUAL_BUFFER
     const uint32_t T2000 = 2000u * tpm;
+#endif
     const uint32_t T5500 = 5500u * tpm;
 
     for (uint8_t i = 0; i < kChCount; i++)
@@ -566,10 +577,9 @@ static inline void MC_PULL_ONLINE_read(uint32_t now_ticks)
             const float pct_f = pull_v_to_percent_f(i, MC_PULL_stu_raw[i]);
 
 #if BMCU_REVERSE_MANUAL_BUFFER
-            // State sequence: stable center -> pull out and hold -> release to
-            // center.  Only that final center return arms gesture load.  Once
-            // autoload starts, this recognizer no longer interprets a high
-            // buffer as a manual command; active-feed logic keeps using high
+            // Simple UX: pull out and hold.  After a short debounce the load
+            // gesture starts immediately; no release-to-center step is needed.
+            // Once autoload starts, active-feed logic keeps using high buffer
             // positions as resistance/jam feedback.
             if (!reverse_gesture_idle)
             {
@@ -578,27 +588,13 @@ static inline void MC_PULL_ONLINE_read(uint32_t now_ticks)
             }
             else if (gst_step[i] == 0u)
             {
-                const bool center = (pct_f >= 45.0f) && (pct_f <= 55.0f);
-                if (!center)
-                {
-                    gst_t0_ticks[i] = 0u;
-                }
-                else
-                {
-                    if (gst_t0_ticks[i] == 0u) gst_t0_ticks[i] = now_ticks;
-                    if ((uint32_t)(now_ticks - gst_t0_ticks[i]) >= T100)
-                        gst_step[i] = 1u;
-                }
-            }
-            else if (gst_step[i] == 1u)
-            {
                 if (pct_f > 90.0f)
                 {
                     gst_t0_ticks[i] = now_ticks;
-                    gst_step[i] = 2u;
+                    gst_step[i] = 1u;
                 }
             }
-            else if (gst_step[i] == 2u)
+            else
             {
                 if (pct_f < 85.0f)
                 {
@@ -606,18 +602,6 @@ static inline void MC_PULL_ONLINE_read(uint32_t now_ticks)
                     gst_t0_ticks[i] = 0u;
                 }
                 else if ((uint32_t)(now_ticks - gst_t0_ticks[i]) >= T100)
-                {
-                    gst_step[i] = 3u;
-                }
-            }
-            else
-            {
-                if ((uint32_t)(now_ticks - gst_t0_ticks[i]) > T2000)
-                {
-                    gst_step[i] = 0u;
-                    gst_t0_ticks[i] = 0u;
-                }
-                else if (pct_f >= 45.0f && pct_f <= 55.0f)
                 {
                     gst_active[i] = true;
                     gst_act_t0_ticks[i] = now_ticks;
@@ -661,7 +645,6 @@ static inline void MC_PULL_ONLINE_read(uint32_t now_ticks)
         }
 
         uint8_t state = phys;
-
 
         if (gst_active[i] && (phys == 0u)) state = 2u;
 
@@ -2712,6 +2695,10 @@ static void motor_motion_run(int error, uint64_t time_now, uint32_t now_ticks)
 
     for (uint8_t i = 0; i < kChCount; i++)
     {
+#if BMCU_REVERSE_MANUAL_BUFFER && BMCU_DM_TWO_MICROSWITCH
+        const uint8_t ks_local = MC_ONLINE_key_stu[i];
+#endif
+
         if (!AS5600_is_good(i))
         {
             MOTOR_CONTROL[i].set_motion(filament_motion_enum::filament_motion_stop, 100, time_now);
@@ -2750,12 +2737,20 @@ static void motor_motion_run(int error, uint64_t time_now, uint32_t now_ticks)
 #endif
 
 #if BMCU_REVERSE_MANUAL_BUFFER
-            // Reverse unload is a low-buffer release-to-center gesture.  It
-            // requires filament so an empty low hold cannot drive the motor.
-            if ((pct <= AUTO_UNLOAD_START_PCT) && (ks != 0u))
+            // Hold low to unload.  Activate immediately so the old pressure
+            // controller cannot briefly feed while the user presses downward.
+            // After release, the original bounded automatic unload continues.
+            if ((pct <= AUTO_UNLOAD_START_PCT) && (ks != 0u) && !auto_unload_active[i])
+            {
+                auto_unload_active[i] = 1u;
+                auto_unload_active_t0_ms[i] = time_now;
+                auto_unload_empty_t0_ms[i] = 0ull;
+                auto_unload_arm[i] = 0u;
+                auto_unload_arm_t0_ms[i] = 0ull;
+                auto_unload_blocked[i] = 1u;
+            }
 #else
             if (pct >= AUTO_UNLOAD_START_PCT)
-#endif
             {
                 auto_unload_blocked[i] = 0u;
 
@@ -2765,6 +2760,7 @@ static void motor_motion_run(int error, uint64_t time_now, uint32_t now_ticks)
                     auto_unload_arm_t0_ms[i] = time_now;
                 }
             }
+#endif
 
             if (auto_unload_arm[i] && !auto_unload_active[i])
             {
@@ -2834,6 +2830,78 @@ static void motor_motion_run(int error, uint64_t time_now, uint32_t now_ticks)
                 }
             }
         }
+
+#if BMCU_REVERSE_MANUAL_BUFFER && BMCU_DM_TWO_MICROSWITCH
+        const float manual_pct = MC_PULL_pct_f[i];
+
+        // Hold high to feed.  This override is restricted to a fully idle,
+        // loaded channel; printer commands and all protection states win.
+        // The stall/time limits are intentionally hidden from the user.
+        auto &host_ams = ams[motion_control_ams_num];
+        const bool manual_feed_allowed =
+            !error &&
+            (ks_local == 1u) &&
+            (dm_auto_state[i] == DM_AUTO_IDLE) &&
+            !dm_fail_latch[i] &&
+            !auto_unload_active[i] &&
+            (MOTOR_CONTROL[i].motion == filament_motion_enum::filament_motion_pressure_ctrl_idle) &&
+            (host_ams.filament[i].motion == _filament_motion::idle);
+
+        bool manual_feed_run = false;
+
+        if (!manual_feed_allowed || (manual_pct < MANUAL_FEED_START_PCT))
+        {
+            manual_feed_start_ms[i] = 0ull;
+            manual_feed_stall_t0_ms[i] = 0ull;
+            if (manual_pct <= MANUAL_FEED_RELEASE_PCT) manual_feed_lock[i] = 0u;
+        }
+        else if (!manual_feed_lock[i])
+        {
+            const uint32_t count = encoder_count(i);
+            if (manual_feed_start_ms[i] == 0ull)
+            {
+                manual_feed_start_ms[i] = time_now;
+                manual_feed_stall_t0_ms[i] = time_now;
+                manual_feed_last_count[i] = count;
+            }
+            else
+            {
+                const uint32_t moved = count_distance(count, manual_feed_last_count[i]);
+                if (moved >= distance_counts(0.002f))
+                {
+                    manual_feed_last_count[i] = count;
+                    manual_feed_stall_t0_ms[i] = time_now;
+                }
+
+                const uint64_t elapsed = time_now - manual_feed_start_ms[i];
+                const uint64_t stall = time_now - manual_feed_stall_t0_ms[i];
+                if (elapsed >= MANUAL_FEED_MAX_MS || stall >= MANUAL_FEED_STALL_MS)
+                {
+                    manual_feed_lock[i] = 1u;
+                    manual_feed_start_ms[i] = 0ull;
+                    manual_feed_stall_t0_ms[i] = 0ull;
+                }
+                else
+                {
+                    manual_feed_run = true;
+                }
+            }
+        }
+
+        if (manual_feed_run)
+        {
+            float x = -MOTOR_CONTROL[i].dir * MANUAL_FEED_PWM;
+            if (x * MOTOR_CONTROL[i].dir >= 0.0f) x = 0.0f;
+
+            MOTOR_CONTROL[i].PID_speed.clear();
+            MOTOR_CONTROL[i].PID_pressure.clear();
+            MOTOR_CONTROL[i].pwm_zeroed = (x == 0.0f) ? 1u : 0u;
+            _MOTOR_CONTROL::x_prev[i] = x;
+            Motion_control_set_PWM(i, (int)x);
+            MC_STU_RGB_set_latch(i, 0x00u, 0xD5u, 0x2Au, time_now, 1u);
+            continue;
+        }
+#endif
 
         const bool manual_empty_pull =
 #if BMCU_REVERSE_MANUAL_BUFFER
