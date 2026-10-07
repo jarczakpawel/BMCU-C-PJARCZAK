@@ -29,11 +29,10 @@ extern bool    filament_channel_inserted[4];
 #define BMCU_DM_TWO_MICROSWITCH 0
 #endif
 
-// Reverse the idle manual buffer gestures while keeping all active-feed jam
-// protections unchanged.  When enabled: pull-out/release-to-center starts a
-// load, press-in/release-to-center starts an unload.
+// Optional reversed idle manual-buffer gestures.  Keep the stock behavior as
+// the default; use the fw_reverse PlatformIO environment to opt in.
 #ifndef BMCU_REVERSE_MANUAL_BUFFER
-#define BMCU_REVERSE_MANUAL_BUFFER 1
+#define BMCU_REVERSE_MANUAL_BUFFER 0
 #endif
 
 // platformio.ini: -DBMCU_ONLINE_LED_FILAMENT_RGB=1 (show filament RGB on ONLINE LED when loaded)

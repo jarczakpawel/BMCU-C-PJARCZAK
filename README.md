@@ -139,6 +139,35 @@ To enter calibration mode:
 
 After calibration, BMCU knows the exact **minimum, center and maximum buffer positions** for each individual channel.
 
+## Optional reversed manual-buffer gestures
+
+By default, the manual buffer behavior remains unchanged:
+
+- press the buffer in to feed filament forward
+- pull the buffer out to start automatic unload
+
+A compile-time `fw_reverse` environment is available for users who prefer the opposite direction:
+
+- hold the buffer low to unload
+- hold the buffer high to feed
+- pull an empty channel out briefly to start AUTOLOAD
+
+The option is per-channel: manual input is ignored for any channel that is currently controlled by the printer, AUTOLOAD, unload, or a protection state. Active-feed jam and pressure protections remain unchanged.
+
+The complete reversed feed gesture requires an AUTOLOAD/dual-microswitch build (`BMCU_DM_TWO_MICROSWITCH=1`). NO_AUTOLOAD builds retain the existing no-gesture-load behavior.
+
+Example build:
+
+```bash
+BAMBU_BUS_AMS_NUM=1 \
+AMS_RETRACT_LEN=0.25f \
+BMCU_DM_TWO_MICROSWITCH=1 \
+BMCU_ONLINE_LED_FILAMENT_RGB=1 \
+DBMCU_P1S=0 \
+BMCU_SOFT_LOAD=0 \
+pio run -e fw_reverse
+```
+
 You can repeat this calibration procedure at any time if necessary.
 
 ---

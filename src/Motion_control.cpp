@@ -564,6 +564,7 @@ static inline void MC_PULL_ONLINE_read(uint32_t now_ticks)
         // be recognized while filament is already present, autoload/retry is
         // active, an unload is active, or the host owns the channel.
         const uint8_t phys = dm_key_to_state(i, keyv[i]);
+#if BMCU_REVERSE_MANUAL_BUFFER
         auto &host_ams = ams[motion_control_ams_num];
         const bool reverse_gesture_idle =
             (phys == 0u) &&
@@ -572,6 +573,7 @@ static inline void MC_PULL_ONLINE_read(uint32_t now_ticks)
             (dm_autoload_gate[i] == 0u) &&
             !auto_unload_active[i] &&
             (host_ams.filament[i].motion == _filament_motion::idle);
+#endif
 
         if (!gst_active[i])
         {
