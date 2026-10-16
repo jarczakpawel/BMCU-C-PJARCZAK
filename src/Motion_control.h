@@ -29,6 +29,12 @@ extern bool    filament_channel_inserted[4];
 #define BMCU_DM_TWO_MICROSWITCH 0
 #endif
 
+// Optional reversed idle manual-buffer gestures.  Keep the stock behavior as
+// the default; use the fw_reverse PlatformIO environment to opt in.
+#ifndef BMCU_REVERSE_MANUAL_BUFFER
+#define BMCU_REVERSE_MANUAL_BUFFER 0
+#endif
+
 // platformio.ini: -DBMCU_ONLINE_LED_FILAMENT_RGB=1 (show filament RGB on ONLINE LED when loaded)
 #ifndef BMCU_ONLINE_LED_FILAMENT_RGB
 #define BMCU_ONLINE_LED_FILAMENT_RGB 0
