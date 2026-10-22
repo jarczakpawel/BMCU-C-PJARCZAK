@@ -61,8 +61,9 @@ build_and_copy() {
   cp -f "${src}" "${out_path}"
 }
 
-rm -rf "${OUT_DIR}"
 mkdir -p "${OUT_DIR}"
+# Remove only what this script writes; README.md files are written by hand and kept in git.
+find "${OUT_DIR}" -type f \( -name '*.bin' -o -name "${OUT_GUIDE}" -o -name manifest.txt \) -delete
 cp -f "${TXT_MODE}" "${OUT_DIR}/${OUT_GUIDE}"
 
 for mode_spec in "${MODES[@]}"; do
@@ -126,6 +127,8 @@ entries = []
 
 for dirpath, _, filenames in os.walk(root):
     for fn in filenames:
+        if not (fn.endswith(".bin") or fn == "which_to_choose.txt"):
+            continue
         p = os.path.join(dirpath, fn)
         rel = os.path.relpath(p, root).replace(os.sep, "/")
 
