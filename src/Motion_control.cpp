@@ -2890,7 +2890,8 @@ void Motion_control_run(int error)
 
         for (uint8_t ch = 0; ch < kChCount; ch++)
         {
-            if (!filament_channel_inserted[ch]) continue;
+            // Uncalibrated: the raw Hall voltage may read as pressed at rest, and boot recalibrates anyway.
+            if (!filament_channel_inserted[ch] || !MC_PULL_calibration_is_valid(ch)) continue;
 
             const int   pct = (int)MC_PULL_pct[ch];
             const float v   = MC_PULL_stu_raw[ch];
