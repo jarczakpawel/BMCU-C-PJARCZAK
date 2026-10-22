@@ -152,6 +152,14 @@ for rel, sha256_hex, crc32_hex, size in entries:
     out.write(f"{sha256_hex} {crc32_hex} {size} {rel}\n")
 PYMAN
 
+# Every variant differs in build flags, so two identical .bin files mean a flag was not applied.
+dups="$(awk '$4 ~ /\.bin$/ { if ($1 in seen) print seen[$1] " == " $4; else seen[$1] = $4 }' "${OUT_DIR}/manifest.txt")"
+if [[ -n "${dups}" ]]; then
+  echo "ERROR: identyczne pliki .bin dla różnych wariantów (flagi builda nie zadziałały?):"
+  echo "${dups}"
+  exit 1
+fi
+
 echo
 echo "DONE. Wyniki w: ${OUT_DIR}/"
 echo "Manifest: ${OUT_DIR}/manifest.txt"
