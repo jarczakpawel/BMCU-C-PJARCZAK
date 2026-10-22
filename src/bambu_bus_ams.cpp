@@ -11,7 +11,9 @@
 static_assert(BAMBU_BUS_AMS_NUM >= 0 && BAMBU_BUS_AMS_NUM <= 4, "invalid AMS index");
 
 static void bambubus_build_static_serial(void);
-static uint32_t bambubus_heartbeat_deadline = 0u;
+// 64-bit ticks: a 32-bit deadline compared with a signed difference flips sign after
+// 2^31 ticks (~119 s at 18 MHz), so a long silence would stop being reported as an error.
+static uint64_t bambubus_heartbeat_deadline = 0u;
 
 #if BMCU_AMS_AUTO
 static uint8_t auto_ams_num = 0u;
@@ -34,7 +36,7 @@ uint8_t bambubus_local_ams_index(void)
 
 void bambubus_heartbeat_seen_fast(void)
 {
-    bambubus_heartbeat_deadline = time_ticks32() + ms_to_ticks32(1000u);
+    bambubus_heartbeat_deadline = time_ticks64() + ms_to_ticks32(1000u);
 }
 
 bool package_check_crc16(uint8_t *data, int data_length)
@@ -1326,8 +1328,8 @@ bambubus_package_type bambubus_run()
 {
     bambubus_package_type stu = bambubus_package_type::none;
 
-    static uint32_t last_hb_deadline = 0u;
-    const uint32_t now = time_ticks32();
+    static uint64_t last_hb_deadline = 0u;
+    const uint64_t now = time_ticks64();
 
     int rx_len = 0;
     _bus_data_type t = _bus_data_type::none;
@@ -1443,7 +1445,7 @@ bambubus_package_type bambubus_run()
         }
     }
 
-    uint32_t hb_deadline = 0u;
+    uint64_t hb_deadline = 0u;
     {
         const uint32_t s = irq_save_wch();
         hb_deadline = bambubus_heartbeat_deadline;
@@ -1453,11 +1455,11 @@ bambubus_package_type bambubus_run()
     if (stu == bambubus_package_type::none && hb_deadline != last_hb_deadline)
     {
         last_hb_deadline = hb_deadline;
-        if (time_diff32(hb_deadline, now) > 0)
+        if (hb_deadline > now)
             stu = bambubus_package_type::heartbeat;
     }
 
-    if (time_diff32(now, hb_deadline) > 0)
+    if (now > hb_deadline)
         stu = bambubus_package_type::error;
 
     return stu;

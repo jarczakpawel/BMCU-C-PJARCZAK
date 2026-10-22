@@ -404,8 +404,9 @@ ahubus_package_type ahubus_run()
 {
     ahubus_package_type package_type = ahubus_package_type::none;
 
-    static uint32_t deadline = 0;
-    const uint32_t now = time_ticks32();
+    // 64-bit for the same reason as bambubus_heartbeat_deadline.
+    static uint64_t deadline = 0;
+    const uint64_t now = time_ticks64();
 
     int rx_len = 0;
     _bus_data_type t = _bus_data_type::none;
@@ -453,7 +454,7 @@ ahubus_package_type ahubus_run()
         }
     }
 
-    if ((int32_t)(now - deadline) > 0)
+    if (now > deadline)
         package_type = ahubus_package_type::error;
 
     return package_type;
