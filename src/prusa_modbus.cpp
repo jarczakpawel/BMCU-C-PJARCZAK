@@ -1,99 +1,220 @@
 #include "prusa_modbus.h"
+#ifdef BMCU_PRUSA
 #include "_bus_hardware.h"
 #include "Motion_control.h"
+#include "Flash_saves.h"
+#include "MC_PULL_calibration.h"
 #include "app_api.h"
 #include "hal/time_hw.h"
-#include <stddef.h>
-
-#ifndef BMCU_PRUSA_NODE
-#define BMCU_PRUSA_NODE 0
-#endif
-static_assert(BMCU_PRUSA_NODE >= 0 && BMCU_PRUSA_NODE < 4);
+#include <string.h>
 
 namespace {
-constexpr uint8_t unit = 0xE0u + BMCU_PRUSA_NODE;
-constexpr uint16_t registers = 12;
-uint8_t request[8];
-uint8_t used = 0;
-uint32_t last_rx = 0;
-uint32_t reply_at = 0;
-bool reply_pending = false;
-uint8_t response[3 + registers * 2 + 2] __attribute__((aligned(4)));
+constexpr uint8_t discovery_address = 0xF0u;
+constexpr uint16_t input_registers = 16u;
+uint8_t address = 0u;
+uint8_t request[20] {};
+uint8_t received = 0u;
+uint8_t expected = 0u;
+uint8_t response[3u + input_registers * 2u + 2u] __attribute__((aligned(4)));
+uint8_t response_length = 0u;
+uint32_t last_rx = 0u;
+uint32_t reply_at = 0u;
+uint32_t calibrate_at = 0u;
+uint8_t calibration_state = 0u;
+bool pending = false;
+bool calibrate_pending = false;
 
-uint16_t crc16(const uint8_t *data, size_t length) {
+uint16_t crc16(const uint8_t *data, uint16_t length) {
     uint16_t crc = 0xFFFFu;
-    for (size_t i = 0; i < length; ++i) {
+    for (uint16_t i = 0; i < length; ++i) {
         crc ^= data[i];
-        for (uint8_t bit = 0; bit < 8; ++bit)
+        for (uint8_t bit = 0; bit < 8u; ++bit)
             crc = (crc & 1u) ? static_cast<uint16_t>((crc >> 1) ^ 0xA001u) : static_cast<uint16_t>(crc >> 1);
     }
     return crc;
 }
 
+void uid_bytes(uint8_t *out) {
+    const volatile uint8_t *uid = reinterpret_cast<const volatile uint8_t *>(0x1FFFF7E8u);
+    for (uint8_t i = 0; i < 12u; ++i) out[i] = uid[i];
+}
+
+void finish_response(uint8_t size, uint32_t delay_us) {
+    const uint16_t crc = crc16(response, size);
+    response[size++] = static_cast<uint8_t>(crc);
+    response[size++] = static_cast<uint8_t>(crc >> 8);
+    response_length = size;
+    reply_at = time_ticks32() + us_to_ticks32(delay_us);
+    pending = true;
+}
+
+void exception(uint8_t function, uint8_t code) {
+    response[0] = address;
+    response[1] = static_cast<uint8_t>(function | 0x80u);
+    response[2] = code;
+    finish_response(3u, 200u);
+}
+
 uint16_t read_register(uint16_t index) {
     switch (index) {
-    case 0: return 0xB4C3;
-    case 1: return 1;
-    case 2: return BMCU_PRUSA_NODE;
-    case 3: return 4;
-    case 4: return ams_state_get_loaded();
-    case 5: {
-        uint16_t present = 0;
-        for (uint8_t i = 0; i < 4; ++i)
-            if (Motion_control_filament_present(i)) present |= static_cast<uint16_t>(1u << i);
-        return present;
+    case 0u: return 0xB4C4u;
+    case 1u: return 2u;
+    case 2u: return address ? static_cast<uint16_t>(address - 0xE0u) : 0xFFFFu;
+    case 3u: return 4u;
+    case 4u: return ams_state_get_loaded();
+    case 5u: {
+        uint16_t bits = 0u;
+        for (uint8_t ch = 0; ch < 4u; ++ch)
+            if (Motion_control_filament_present(ch)) bits |= static_cast<uint16_t>(1u << ch);
+        return bits;
     }
+    case 12u: return Motion_control_prusa_retract_mm();
+    case 13u: return Motion_control_prusa_led_rgb565();
+    case 14u: return Flash_Prusa_settings_status();
+    case 15u: return calibration_state;
     default: {
         const volatile uint8_t *uid = reinterpret_cast<const volatile uint8_t *>(0x1FFFF7E8u);
-        const uint8_t offset = static_cast<uint8_t>((index - 6u) * 2u);
-        return static_cast<uint16_t>((static_cast<uint16_t>(uid[offset]) << 8) | uid[offset + 1u]);
+        const uint8_t pos = static_cast<uint8_t>((index - 6u) * 2u);
+        return static_cast<uint16_t>((static_cast<uint16_t>(uid[pos]) << 8) | uid[pos + 1u]);
     }
+    }
+}
+
+void process_frame() {
+    const uint8_t fn = request[1];
+    const uint16_t frame_crc = crc16(request, expected - 2u);
+    if (request[expected - 2u] != static_cast<uint8_t>(frame_crc) ||
+        request[expected - 1u] != static_cast<uint8_t>(frame_crc >> 8)) return;
+
+    if (request[0] == discovery_address) {
+        uint8_t uid[12];
+        uid_bytes(uid);
+        if (fn == 0x41u) {
+            if (address || request[2] > 96u) return;
+            const uint8_t bits = request[2];
+            const uint8_t whole = bits / 8u;
+            const uint8_t partial = bits % 8u;
+            if (memcmp(uid, request + 3u, whole)) return;
+            if (partial && ((uid[whole] ^ request[3u + whole]) & (0xFFu << (8u - partial)))) return;
+            uint32_t value = 0x811C9DC5u;
+            for (uint8_t b : uid) value = (value ^ b) * 0x01000193u;
+            value ^= static_cast<uint32_t>(request[15]) << 8u | request[16];
+            value ^= value >> 16;
+            value *= 0x7FEB352Du;
+            value ^= value >> 15;
+            value *= 0x846CA68Bu;
+            value ^= value >> 16;
+            response[0] = discovery_address;
+            response[1] = fn;
+            memcpy(response + 2u, uid, 12u);
+            finish_response(14u, 1000u + (value & 127u) * 850u);
+            return;
+        }
+        if (fn == 0x42u || fn == 0x43u) {
+            if (memcmp(uid, request + 2u, 12u)) return;
+            if (fn == 0x42u && (request[14] < 0xE0u || request[14] > 0xE3u)) return;
+            address = fn == 0x42u ? request[14] : 0u;
+            response[0] = discovery_address;
+            response[1] = fn;
+            memcpy(response + 2u, uid, 12u);
+            response[14] = address;
+            finish_response(15u, 200u);
+        }
+        return;
+    }
+
+    if (!address || request[0] != address) return;
+    if (fn == 4u) {
+        const uint16_t first = static_cast<uint16_t>(request[2] << 8u | request[3]);
+        const uint16_t count = static_cast<uint16_t>(request[4] << 8u | request[5]);
+        if (!count || count > input_registers || first >= input_registers || count > input_registers - first) {
+            exception(fn, 2u);
+            return;
+        }
+        response[0] = address;
+        response[1] = fn;
+        response[2] = static_cast<uint8_t>(count * 2u);
+        for (uint16_t i = 0; i < count; ++i) {
+            const uint16_t value = read_register(first + i);
+            response[3u + i * 2u] = static_cast<uint8_t>(value >> 8);
+            response[4u + i * 2u] = static_cast<uint8_t>(value);
+        }
+        finish_response(static_cast<uint8_t>(3u + count * 2u), 200u);
+    } else if (fn == 16u) {
+        const uint16_t reg = static_cast<uint16_t>(request[2] << 8u | request[3]);
+        const uint16_t count = static_cast<uint16_t>(request[4] << 8u | request[5]);
+        if (count != 1u || request[6] != 2u) {
+            exception(fn, 3u);
+            return;
+        }
+        const uint16_t value = static_cast<uint16_t>(request[7] << 8u | request[8]);
+        bool accepted = false;
+        if (reg == 0x100u || reg == 0x101u) {
+            const uint16_t mm = reg == 0x100u ? value : Motion_control_prusa_retract_mm();
+            const uint16_t rgb = reg == 0x101u ? value : Motion_control_prusa_led_rgb565();
+            accepted = Motion_control_prusa_settings_save(mm, rgb);
+        } else if (reg == 0x102u && value == 0xCA1Bu) {
+            accepted = !calibrate_pending && calibration_state != 1u &&
+                Flash_background_idle() && Motion_control_prusa_ready_for_settings();
+            if (accepted) {
+                calibration_state = 1u;
+                calibrate_pending = true;
+                calibrate_at = time_ticks32() + ms_to_ticks32(300u);
+            }
+        }
+        if (!accepted) {
+            exception(fn, 6u);
+            return;
+        }
+        memcpy(response, request, 6u);
+        finish_response(6u, 200u);
     }
 }
 }
 
 void prusa_modbus_rx(uint8_t data) {
     const uint32_t now = time_ticks32();
-    if (used && static_cast<uint32_t>(now - last_rx) > us_to_ticks32(1000u)) used = 0;
+    if (received && static_cast<uint32_t>(now - last_rx) > us_to_ticks32(1100u)) received = 0u;
     last_rx = now;
-    if (reply_pending) return;
-    if (!used) {
-        if (data != unit) return;
-        request[used++] = data;
+    if (pending) {
+        if (response[0] == discovery_address && response[1] == 0x41u)
+            pending = false;
+        else return;
+    }
+    if (calibrate_pending || calibration_state == 1u) return;
+    if (!received) {
+        if (data != discovery_address && (!address || data != address)) return;
+        request[0] = data;
+        received = 1u;
+        expected = 0u;
         return;
     }
-    request[used++] = data;
-    if (used == 2 && request[1] != 4u) {
-        used = 0;
-        return;
+    if (received >= sizeof(request)) { received = 0u; return; }
+    request[received++] = data;
+    if (received == 2u) {
+        expected = (data == 4u) ? 8u : (data == 16u ? 11u :
+            (request[0] == discovery_address && data == 0x41u ? 19u :
+             request[0] == discovery_address && (data == 0x42u || data == 0x43u) ? 17u : 0u));
+        if (!expected) { received = 0u; return; }
     }
-    if (used != sizeof(request)) return;
-    used = 0;
-
-    const uint16_t crc = crc16(request, 6);
-    if (request[6] != static_cast<uint8_t>(crc) || request[7] != static_cast<uint8_t>(crc >> 8)) return;
-    const uint16_t start = static_cast<uint16_t>((request[2] << 8) | request[3]);
-    const uint16_t count = static_cast<uint16_t>((request[4] << 8) | request[5]);
-    if (!count || count > registers || start >= registers || count > registers - start) return;
-
-    response[0] = unit;
-    response[1] = 4u;
-    response[2] = static_cast<uint8_t>(count * 2u);
-    for (uint16_t i = 0; i < count; ++i) {
-        const uint16_t value = read_register(start + i);
-        response[3u + 2u * i] = static_cast<uint8_t>(value >> 8);
-        response[4u + 2u * i] = static_cast<uint8_t>(value);
+    if (expected && received == expected) {
+        process_frame();
+        received = 0u;
     }
-    const uint16_t length = static_cast<uint16_t>(3u + 2u * count);
-    const uint16_t reply_crc = crc16(response, length);
-    response[length] = static_cast<uint8_t>(reply_crc);
-    response[length + 1u] = static_cast<uint8_t>(reply_crc >> 8);
-    reply_at = now + us_to_ticks32(200u);
-    reply_pending = true;
 }
 
 void prusa_modbus_run() {
-    if (!reply_pending || !time_reached32(time_ticks32(), reply_at)) return;
-    if (bus_uart1_dma_send(response, static_cast<uint16_t>(5u + response[2])))
-        reply_pending = false;
+    if (!pending || !time_reached32(time_ticks32(), reply_at)) return;
+    if (bus_uart1_dma_send(response, response_length)) pending = false;
 }
+
+void prusa_modbus_calibration_run() {
+    if (!calibrate_pending || !time_reached32(time_ticks32(), calibrate_at)) return;
+    if (!bus_background_ready()) return;
+    calibrate_pending = false;
+    const bool success = MC_PULL_calibration_boot(true);
+    if (!success) MC_PULL_calibration_boot(false);
+    calibration_state = success ? 2u : 3u;
+}
+
+#endif

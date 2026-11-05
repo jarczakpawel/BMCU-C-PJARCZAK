@@ -301,6 +301,12 @@ int main(void)
 #endif
 #ifdef BMCU_PRUSA
         Motion_control_run(-1);
+        Flash_background_run();
+        prusa_modbus_calibration_run();
+        const uint16_t rgb = Motion_control_prusa_led_rgb565();
+        SYS_RGB.set_RGB(static_cast<uint8_t>(((rgb >> 11) & 31u) * 2u),
+                        static_cast<uint8_t>(((rgb >> 5) & 63u)),
+                        static_cast<uint8_t>((rgb & 31u) * 2u), 0);
 #else
         Motion_control_run(error);
         Flash_background_run();

@@ -293,7 +293,7 @@ bool MC_PULL_calibration_clear()
     return Flash_MC_PULL_cal_clear();
 }
 
-void MC_PULL_calibration_boot()
+bool MC_PULL_calibration_boot(bool force)
 {
     g_valid_mask = 0u;
     for (int i = 0; i < 6; i++) { ADC_DMA_poll(); delay(20); }
@@ -301,7 +301,7 @@ void MC_PULL_calibration_boot()
     uint8_t selected = 0u;
     for (uint8_t ch = 0u; ch < 4u; ch++)
         if (filament_channel_inserted[ch]) selected |= (uint8_t)(1u << ch);
-    if (!selected) return;
+    if (!selected) return false;
 
     float offs[4] = {}, vmin[4] = {}, vmax[4] = {}, dm_none[4] = {};
     int8_t pol[4] = {1, 1, 1, 1};
@@ -322,7 +322,7 @@ void MC_PULL_calibration_boot()
         stored = (valid & selected) == selected;
     }
 
-    if (!stored)
+    if (!stored || force)
     {
         float sum_raw[4] = {}, sum_key[4] = {};
         float low[4] = {10, 10, 10, 10}, high[4] = {};
@@ -363,7 +363,7 @@ void MC_PULL_calibration_boot()
             MC_PULL_ONLINE_RGB_set(ch, 0u, 0u, 0u);
         }
         RGB_update();
-        if (baseline_valid != selected) { blink_all(0x18u, 0u, 0u, 2, 220, 220); return; }
+        if (baseline_valid != selected) { blink_all(0x18u, 0u, 0u, 2, 220, 220); return false; }
 
         valid = 0u;
         for (uint8_t ch = 0u; ch < 4u; ch++)
@@ -372,7 +372,7 @@ void MC_PULL_calibration_boot()
             if (!capture_minmax_one_ch_event(ch, 1.65f, offs[ch], vmin[ch], vmax[ch], pol[ch]))
             {
                 blink_all(0x18u, 0u, 0u, 2, 220, 220);
-                return;
+                return false;
             }
             valid |= (uint8_t)(1u << ch);
             MC_PULL_ONLINE_RGB_set(ch, 0x10u, 0x10u, 0u);
@@ -408,7 +408,7 @@ void MC_PULL_calibration_boot()
             !Flash_MC_PULL_cal_write_all(offs, vmin, vmax, pol, dm_none, valid))
         {
             blink_all(0x18u, 0u, 0u, 2, 220, 220);
-            return;
+            return false;
         }
     }
 
@@ -422,5 +422,6 @@ void MC_PULL_calibration_boot()
         MC_DM_KEY_NONE_THRESH[ch] = dm_none[ch];
     }
     g_valid_mask = valid & selected;
-    if (!stored) blink_all(0u, 0x16u, 0u, 2, 220, 220);
+    if (!stored || force) blink_all(0u, 0x16u, 0u, 2, 220, 220);
+    return true;
 }

@@ -66,3 +66,9 @@ bool Flash_NVM_full_clear(void);
 bool Flash_Motion_read(void* out, uint16_t bytes);
 bool Flash_Motion_write(const void* in, uint16_t bytes);
 bool Flash_Motion_clear(void);
+#ifdef BMCU_PRUSA
+bool Flash_Prusa_settings_queue(const void* data, uint16_t bytes, uint32_t value);
+uint8_t Flash_Prusa_settings_status();
+uint32_t Flash_Prusa_settings_get();
+void Flash_Prusa_settings_set(uint32_t value);
+#endif

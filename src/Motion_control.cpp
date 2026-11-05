@@ -638,6 +638,22 @@ struct alignas(4) Motion_control_save_struct
     uint8_t dm_key_none_cv[4];
 } Motion_control_data_save;
 
+#ifdef BMCU_PRUSA
+static uint16_t prusa_retract_mm = static_cast<uint16_t>(motion_control_pull_back_distance * 1000.0f);
+static uint16_t prusa_rgb565 = 0xFFFFu;
+
+uint16_t Motion_control_prusa_retract_mm() { return prusa_retract_mm; }
+uint16_t Motion_control_prusa_led_rgb565() { return prusa_rgb565; }
+
+static void prusa_settings_read() {
+    const uint32_t raw = Flash_Prusa_settings_get();
+    if (!(raw & 0x80000000u)) return;
+    const uint16_t mm = raw & 0x3FFFu;
+    if (mm >= 1u && mm <= 10000u) prusa_retract_mm = mm;
+    prusa_rgb565 = static_cast<uint16_t>((raw >> 14) & 0xFFFFu);
+}
+#endif
+
 static inline void Motion_control_defaults()
 {
     for (uint8_t i = 0; i < kChCount; i++)
@@ -678,6 +694,9 @@ static inline bool Motion_control_read()
     }
 
     Motion_control_apply_saved();
+#ifdef BMCU_PRUSA
+    prusa_settings_read();
+#endif
     return true;
 }
 
@@ -694,6 +713,30 @@ static inline bool Motion_control_save()
 
     return Flash_Motion_write(&Motion_control_data_save, (uint16_t)sizeof(Motion_control_save_struct));
 }
+
+#ifdef BMCU_PRUSA
+bool Motion_control_prusa_ready_for_settings() {
+    if (ams_state_get_loaded() < 4u) return false;
+    for (uint8_t ch = 0; ch < 4u; ++ch)
+        if (Motion_control_filament_present(ch)) return false;
+    return true;
+}
+
+bool Motion_control_prusa_settings_save(uint16_t mm, uint16_t rgb565) {
+    if (mm < 1u || mm > 10000u || !Motion_control_prusa_ready_for_settings()) return false;
+    const uint32_t previous = Flash_Prusa_settings_get();
+    const uint32_t next = 0x80000000u | (static_cast<uint32_t>(rgb565) << 14) | mm;
+    if (next != previous) {
+        Motion_control_data_save.check = 0x40614061u;
+        if (!Flash_Prusa_settings_queue(&Motion_control_data_save,
+                static_cast<uint16_t>(sizeof(Motion_control_save_struct)), next)) return false;
+        Flash_Prusa_settings_set(next);
+    }
+    prusa_retract_mm = mm;
+    prusa_rgb565 = rgb565;
+    return true;
+}
+#endif
 
 bool Motion_control_save_dm_key_none_thresholds(void)
 {
@@ -2166,9 +2209,13 @@ enum filament_now_position_enum
 static filament_now_position_enum filament_now_position[4];
 static uint32_t filament_pull_back_count[4];
 
-static constexpr uint32_t kPullBackCount = distance_counts(motion_control_pull_back_distance);
+#ifdef BMCU_PRUSA
+static uint32_t pull_back_count() { return distance_counts(static_cast<float>(prusa_retract_mm) * 0.001f); }
+#else
+static constexpr uint32_t pull_back_count() { return distance_counts(motion_control_pull_back_distance); }
+#endif
 static uint32_t filament_pull_back_target[4] = {
-    kPullBackCount, kPullBackCount, kPullBackCount, kPullBackCount
+    pull_back_count(), pull_back_count(), pull_back_count(), pull_back_count()
 };
 
 // BEFORE_PULLBACK: zapis realnie "wycofanej" drogi (counts) (sumowanie całego wycofania)
@@ -2197,7 +2244,7 @@ static bool motor_motion_filamnet_pull_back_to_online_key(uint64_t time_now)
                 g_pull_remain_m[i]  = 0.0f;
                 g_pull_speed_set[i] = -PULL_V_FAST;
                 MOTOR_CONTROL[i].set_motion(filament_motion_enum::filament_motion_stop, 100, time_now);
-                filament_pull_back_target[i] = kPullBackCount;
+                filament_pull_back_target[i] = pull_back_count();
                 filament_now_position[i] = filament_redetect;
             }
             else if (g_key_empty[i] >= kKeyEmptyPublications)
@@ -2205,7 +2252,7 @@ static bool motor_motion_filamnet_pull_back_to_online_key(uint64_t time_now)
                 g_pull_remain_m[i]  = 0.0f;
                 g_pull_speed_set[i] = -PULL_V_FAST;
                 MOTOR_CONTROL[i].set_motion(filament_motion_enum::filament_motion_stop, 100, time_now);
-                filament_pull_back_target[i] = kPullBackCount;
+                filament_pull_back_target[i] = pull_back_count();
                 filament_now_position[i] = filament_redetect;
             }
             else
@@ -2338,7 +2385,7 @@ static void motor_motion_switch(uint64_t time_now)
                 else
                 {
                     const uint32_t already = before_pb_retracted_count[num];
-                    target = already < kPullBackCount ? kPullBackCount - already : 0u;
+                    target = already < pull_back_count() ? pull_back_count() - already : 0u;
                 }
 
                 filament_pull_back_target[num] = target;

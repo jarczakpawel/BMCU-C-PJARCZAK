@@ -43,3 +43,10 @@ extern bool    filament_channel_inserted[4];
 #endif
 
 bool Motion_control_filament_present(uint8_t ch);
+
+#ifdef BMCU_PRUSA
+uint16_t Motion_control_prusa_retract_mm();
+uint16_t Motion_control_prusa_led_rgb565();
+bool Motion_control_prusa_settings_save(uint16_t mm, uint16_t rgb565);
+bool Motion_control_prusa_ready_for_settings();
+#endif

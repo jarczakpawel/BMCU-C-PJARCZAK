@@ -322,7 +322,11 @@ static inline uint32_t sta_slot_addr(uint32_t slot)
 
 struct Flash_job
 {
+#ifdef BMCU_PRUSA
+    uint32_t words[64];
+#else
     uint32_t words[FIL_SLOT_WORDS];
+#endif
     uint32_t addr;
     uint32_t started;
     uint16_t slot;
@@ -336,6 +340,9 @@ struct Flash_job
 };
 
 static Flash_job g_flash_job = {};
+#ifdef BMCU_PRUSA
+static uint8_t g_prusa_settings_result = 1u;
+#endif
 
 static uint8_t flash_job_halfword(const Flash_job& job)
 {
@@ -383,6 +390,9 @@ void Flash_background_run(void)
         time_hw_flash_clock(0u);
         if (!ok) {
             g_flash_fault = true;
+#ifdef BMCU_PRUSA
+            if (job.kind == 5u) g_prusa_settings_result = 2u;
+#endif
             job.kind = 0u;
             return;
         }
@@ -403,6 +413,11 @@ void Flash_background_run(void)
                 job.erase = true;
                 return;
             }
+#ifdef BMCU_PRUSA
+            if (job.kind == 5u) {
+                g_prusa_settings_result = 1u;
+            } else
+#endif
             if (job.kind == 1u || job.kind == 4u) {
                 memcpy(&g_fil_last[job.channel], &job.words[1], sizeof(Flash_FilamentInfo));
                 g_fil_have[job.channel] = 1u;
@@ -697,10 +712,40 @@ bool Flash_MC_PULL_cal_clear(void)
     return cal_commit(p, 0u);
 }
 
+#ifdef BMCU_PRUSA
+static uint32_t g_prusa_motion_rsv = 0u;
+
+uint32_t Flash_Prusa_settings_get() { return g_prusa_motion_rsv; }
+void Flash_Prusa_settings_set(uint32_t value) { g_prusa_motion_rsv = value; }
+uint8_t Flash_Prusa_settings_status() { return g_prusa_settings_result; }
+
+bool Flash_Prusa_settings_queue(const void* data, uint16_t bytes, uint32_t value) {
+    if (!data || !bytes || bytes > NVM256_CRC_OFF - sizeof(NVM256_HDR) ||
+        g_flash_fault || !Flash_background_idle()) return false;
+    Flash_job &job = g_flash_job;
+    job = {};
+    memset(job.words, 0xFF, sizeof(job.words));
+    NVM256_HDR header { MAGIC_MOT, VER_1, bytes, value };
+    memcpy(job.words, &header, sizeof(header));
+    memcpy(reinterpret_cast<uint8_t*>(job.words) + sizeof(header), data, bytes);
+    job.words[63] = crc32_hw_words(job.words, NVM256_CRC_OFF);
+    job.addr = FLASH_NVM_MOTION_ADDR;
+    job.halfwords = 128u;
+    job.erase = true;
+    job.kind = 5u;
+    g_prusa_settings_result = 0u;
+    return true;
+}
+#endif
+
 bool Flash_Motion_write(const void* in, uint16_t bytes)
 {
     if (!in || bytes == 0u) return false;
+#ifdef BMCU_PRUSA
+    return nvm256_write(FLASH_NVM_MOTION_ADDR, MAGIC_MOT, VER_1, g_prusa_motion_rsv, in, bytes);
+#else
     return nvm256_write(FLASH_NVM_MOTION_ADDR, MAGIC_MOT, VER_1, 0u, in, bytes);
+#endif
 }
 
 bool Flash_Motion_read(void* out, uint16_t bytes)
@@ -708,10 +753,19 @@ bool Flash_Motion_read(void* out, uint16_t bytes)
     if (!out || bytes == 0u) return false;
 
     uint16_t got = 0u;
+#ifdef BMCU_PRUSA
+    uint32_t rsv = 0u;
+    if (!nvm256_read(FLASH_NVM_MOTION_ADDR, MAGIC_MOT, VER_1,
+                     out, bytes, &got, &rsv))
+#else
     if (!nvm256_read(FLASH_NVM_MOTION_ADDR, MAGIC_MOT, VER_1,
                      out, bytes, &got, nullptr))
+#endif
         return false;
 
+#ifdef BMCU_PRUSA
+    g_prusa_motion_rsv = rsv;
+#endif
     return (got != 0u) && (got <= bytes);
 }
 
