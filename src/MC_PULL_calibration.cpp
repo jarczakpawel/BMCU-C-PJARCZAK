@@ -293,7 +293,7 @@ bool MC_PULL_calibration_clear()
     return Flash_MC_PULL_cal_clear();
 }
 
-bool MC_PULL_calibration_boot(bool force)
+bool MC_PULL_calibration_boot(bool force, bool interactive)
 {
     g_valid_mask = 0u;
     for (int i = 0; i < 6; i++) { ADC_DMA_poll(); delay(20); }
@@ -324,6 +324,7 @@ bool MC_PULL_calibration_boot(bool force)
 
     if (!stored || force)
     {
+        if (!interactive) return false;
         float sum_raw[4] = {}, sum_key[4] = {};
         float low[4] = {10, 10, 10, 10}, high[4] = {};
         uint8_t baseline_valid = selected;

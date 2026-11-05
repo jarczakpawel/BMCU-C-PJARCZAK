@@ -225,7 +225,11 @@ int main(void)
     ADC_DMA_init();
     ADC_DMA_wait_full();
 
+#ifdef BMCU_PRUSA
+    MC_PULL_calibration_boot(false, false);
+#else
     MC_PULL_calibration_boot();
+#endif
     ams_datas_read();
 
     {

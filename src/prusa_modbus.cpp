@@ -213,7 +213,7 @@ void prusa_modbus_calibration_run() {
     if (!bus_background_ready()) return;
     calibrate_pending = false;
     const bool success = MC_PULL_calibration_boot(true);
-    if (!success) MC_PULL_calibration_boot(false);
+    if (!success) MC_PULL_calibration_boot(false, false);
     calibration_state = success ? 2u : 3u;
 }
 
