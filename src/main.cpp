@@ -10,6 +10,9 @@
 #include "bambu_bus_ams.h"
 #include "ADC_DMA.h"
 #include "Debug_log.h"
+#ifdef BMCU_PRUSA
+#include "prusa_modbus.h"
+#endif
 #include <string.h>
 
 WS2812_class SYS_RGB;
@@ -248,6 +251,7 @@ int main(void)
     }
 
     Motion_control_init();
+#ifndef BMCU_PRUSA
     if (g_loaded_ch < 4u && (!Motion_control_filament_present(g_loaded_ch) ||
         !MC_PULL_calibration_is_valid(g_loaded_ch))) {
         _ams* a = &ams[BMCU_LOCAL_AMS_INDEX];
@@ -257,7 +261,10 @@ int main(void)
         a->pressure = 0xF9C6u;
         ams_state_set_unloaded(g_loaded_ch);
     }
+#endif
+#ifndef BMCU_PRUSA
     bambubus_init();
+#endif
     bus_init();
 
     DEBUG("START\n");
@@ -265,6 +272,10 @@ int main(void)
     while (1)
     {
         bus_rx_poll();
+#ifdef BMCU_PRUSA
+        prusa_modbus_run();
+#endif
+#ifndef BMCU_PRUSA
         const ahubus_package_type   ahub_stu     = ahubus_run();
         const bambubus_package_type bambubus_stu = bambubus_run();
         bus_port_to_host.send_package();
@@ -282,11 +293,18 @@ int main(void)
         else if (error) SYS_RGB.set_RGB(0x10, 0x00, 0x00, 0);
         else SYS_RGB.set_RGB(0x38, 0x35, 0x32, 0);
 
+#endif
+#ifndef BMCU_PRUSA
         if (g_state_dirty && bus_background_ready()) ams_state_save_run();
         if (g_fil_dirty && bus_background_ready()) ams_datas_save_run();
 
+#endif
+#ifdef BMCU_PRUSA
+        Motion_control_run(-1);
+#else
         Motion_control_run(error);
         Flash_background_run();
+#endif
         RGB_update();
     }
 }

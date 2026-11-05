@@ -2842,8 +2842,10 @@ void Motion_control_run(int error)
     MC_PULL_ONLINE_read(now_ticks);
 
     const uint8_t loaded_ch = ams_state_get_loaded();
+#ifndef BMCU_PRUSA
     if ((loaded_ch < kChCount) && (MC_ONLINE_key_stu[loaded_ch] == 0u))
         ams_state_set_unloaded(loaded_ch);
+#endif
 
     auto &A = ams[motion_control_ams_num];
 
@@ -3190,7 +3192,9 @@ static void MOTOR_init()
 
     RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOC | RCC_APB2Periph_GPIOD, ENABLE);
 
+#ifndef BMCU_PRUSA
     MOTOR_get_dir();
+#endif
 
     for (uint8_t i = 0; i < kChCount; i++)
     {

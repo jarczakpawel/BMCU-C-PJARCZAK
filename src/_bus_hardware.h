@@ -241,3 +241,4 @@ void bus_shutdown();
 #define host_device_type_ahub 0x0001
 #define host_device_type_ams 0x0700
 extern uint16_t bus_host_device_type;
+bool bus_uart1_dma_send(uint8_t *data, uint16_t length);

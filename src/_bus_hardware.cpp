@@ -10,6 +10,9 @@
 #include "crc_bus.h"
 #include "hal/irq_wch.h"
 #include "hal/time_hw.h"
+#ifdef BMCU_PRUSA
+#include "prusa_modbus.h"
+#endif
 
 uint16_t bus_host_device_type=0x0000;
 
@@ -20,8 +23,13 @@ bool bus_uart1_dma_send(uint8_t *data, uint16_t length);
 
 _bus_port_deal bus_port_to_host;
 
+#ifdef BMCU_PRUSA
+static constexpr uint32_t BUS_BAUD = 230400u;
+static constexpr uint32_t BUS_BITS_PER_CHAR = 10u;
+#else
 static constexpr uint32_t BUS_BAUD = 1250000u;
 static constexpr uint32_t BUS_BITS_PER_CHAR = 11u;
+#endif
 static constexpr uint32_t RX_SIZE = 2048u;
 static constexpr uint32_t wire_time_us(uint32_t bytes)
 {
@@ -139,6 +147,7 @@ void bus_rx_poll()
     if (produced != rx_consumed) rx_last_progress = now;
     while (rx_consumed != produced && !rx_fault) {
         // skip heartbeat
+#ifndef BMCU_PRUSA
         const uint32_t available = (uint32_t)(produced - rx_consumed);
         if (__builtin_expect(available >= 5u, 1) &&
             rx_peek(rx_consumed + 0u) == 0x3Du &&
@@ -155,6 +164,7 @@ void bus_rx_poll()
             }
         }
 
+#endif
         if ((rx_consumed & 127u) == 0u &&
             (uint32_t)(rx_produced() - rx_consumed) >= RX_SIZE) {
             rx_fault = true;
@@ -162,7 +172,11 @@ void bus_rx_poll()
         }
         const uint8_t data = rx_dma[rx_consumed & (RX_SIZE - 1u)];
         ++rx_consumed;
+#ifdef BMCU_PRUSA
+        prusa_modbus_rx(data);
+#else
         bus_port_to_host.irq(data);
+#endif
     }
     if (!rx_fault && bus_port_to_host.receiving() &&
         (uint32_t)(now - rx_last_progress) >= us_to_ticks32(wire_time_us(1282u)) &&
@@ -241,9 +255,17 @@ void bus_uart1_init()
     GPIOA->BCR = GPIO_Pin_12;
 
     USART_InitStructure.USART_BaudRate = BUS_BAUD;
+#ifdef BMCU_PRUSA
+    USART_InitStructure.USART_WordLength = USART_WordLength_8b;
+#else
     USART_InitStructure.USART_WordLength = USART_WordLength_9b;
+#endif
     USART_InitStructure.USART_StopBits = USART_StopBits_1;
+#ifdef BMCU_PRUSA
+    USART_InitStructure.USART_Parity = USART_Parity_No;
+#else
     USART_InitStructure.USART_Parity = USART_Parity_Even;
+#endif
     USART_InitStructure.USART_HardwareFlowControl = USART_HardwareFlowControl_None;
     USART_InitStructure.USART_Mode = USART_Mode_Tx | USART_Mode_Rx;
 
