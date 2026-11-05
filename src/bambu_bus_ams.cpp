@@ -275,10 +275,10 @@ bool set_motion(unsigned char read_num, unsigned char statu_flags, unsigned char
         const bool is_on_use        = ((statu_flags == 0x07) && (fliment_motion_flag == 0x7F));
         const bool is_before_pullb  = ((statu_flags == 0x09) && (fliment_motion_flag == 0x3F));
 
-        if (is_before_on_use &&
-            ams_ptr->filament[ch].motion != _filament_motion::send_out &&
-            ams_ptr->filament[ch].motion != _filament_motion::before_on_use)
-            return true;
+        // if (is_before_on_use &&
+        //     ams_ptr->filament[ch].motion != _filament_motion::send_out &&
+        //     ams_ptr->filament[ch].motion != _filament_motion::before_on_use)
+        //     return true;
 
         uint32_t &t_sendout_onuse = time_sendout_onuse_ticks[ch];
 
