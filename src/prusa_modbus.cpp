@@ -10,7 +10,7 @@
 
 namespace {
 constexpr uint8_t discovery_address = 0xF0u;
-constexpr uint16_t input_registers = 16u;
+constexpr uint16_t input_registers = 18u;
 uint8_t address = 0u;
 uint8_t request[20] {};
 uint8_t received = 0u;
@@ -57,8 +57,8 @@ void exception(uint8_t function, uint8_t code) {
 
 uint16_t read_register(uint16_t index) {
     switch (index) {
-    case 0u: return 0xB4C4u;
-    case 1u: return 2u;
+    case 0u: return 0xB4C5u;
+    case 1u: return 3u;
     case 2u: return address ? static_cast<uint16_t>(address - 0xE0u) : 0xFFFFu;
     case 3u: return 4u;
     case 4u: return ams_state_get_loaded();
@@ -72,6 +72,8 @@ uint16_t read_register(uint16_t index) {
     case 13u: return Motion_control_prusa_led_rgb565();
     case 14u: return Flash_Prusa_settings_status();
     case 15u: return calibration_state;
+    case 16u: return Motion_control_prusa_phase();
+    case 17u: return Motion_control_prusa_calibration_mask();
     default: {
         const volatile uint8_t *uid = reinterpret_cast<const volatile uint8_t *>(0x1FFFF7E8u);
         const uint8_t pos = static_cast<uint8_t>((index - 6u) * 2u);

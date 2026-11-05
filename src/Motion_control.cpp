@@ -642,6 +642,19 @@ struct alignas(4) Motion_control_save_struct
 static uint16_t prusa_retract_mm = static_cast<uint16_t>(motion_control_pull_back_distance * 1000.0f);
 static uint16_t prusa_rgb565 = 0xFFFFu;
 
+uint16_t Motion_control_prusa_phase() {
+    const auto &unit = ams[motion_control_ams_num];
+    const uint8_t ch = unit.now_filament_num;
+    return ch < 4u ? static_cast<uint16_t>(unit.filament[ch].motion) : 0u;
+}
+
+uint16_t Motion_control_prusa_calibration_mask() {
+    uint16_t valid = 0u;
+    for (uint8_t ch = 0u; ch < 4u; ++ch)
+        if (MC_PULL_calibration_is_valid(ch)) valid |= static_cast<uint16_t>(1u << ch);
+    return valid;
+}
+
 uint16_t Motion_control_prusa_retract_mm() { return prusa_retract_mm; }
 uint16_t Motion_control_prusa_led_rgb565() { return prusa_rgb565; }
 
