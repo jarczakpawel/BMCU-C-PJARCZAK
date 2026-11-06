@@ -11,7 +11,7 @@
 
 namespace {
 constexpr uint8_t discovery_address = 0xF0u;
-constexpr uint16_t input_registers = 26u;
+constexpr uint16_t input_registers = 30u;
 uint8_t address = 0u;
 uint8_t request[20] {};
 uint8_t received = 0u;
@@ -24,6 +24,7 @@ uint32_t calibrate_at = 0u;
 uint8_t calibration_state = 0u;
 bool pending = false;
 bool calibrate_pending = false;
+bool motor_calibrate_pending = false;
 uint8_t attention_channel = 0xFFu;
 
 uint16_t crc16(const uint8_t *data, uint16_t length) {
@@ -59,8 +60,8 @@ void exception(uint8_t function, uint8_t code) {
 
 uint16_t read_register(uint16_t index) {
     switch (index) {
-    case 0u: return 0xB4C9u;
-    case 1u: return 7u;
+    case 0u: return 0xB4CCu;
+    case 1u: return 10u;
     case 2u: return address ? static_cast<uint16_t>(address - 0xE0u) : 0xFFFFu;
     case 3u: return 4u;
     case 4u: return ams_state_get_loaded();
@@ -80,6 +81,10 @@ uint16_t read_register(uint16_t index) {
     case 23u: return ams_state_prusa_save_pending();
     case 24u: return Motion_control_prusa_switches();
     case 25u: return attention_channel;
+    case 26u: return Motion_control_prusa_stop_status();
+    case 27u: return Motion_control_prusa_armed_channel();
+    case 28u: return Motion_control_prusa_motion_channel();
+    case 29u: return Motion_control_prusa_motor_ready_mask();
     default: {
         if (index >= 18u) {
             const auto &fil = ams[BMCU_LOCAL_AMS_INDEX].filament[index - 18u];
@@ -98,6 +103,7 @@ void process_frame() {
     const uint16_t frame_crc = crc16(request, expected - 2u);
     if (request[expected - 2u] != static_cast<uint8_t>(frame_crc) ||
         request[expected - 1u] != static_cast<uint8_t>(frame_crc >> 8)) return;
+    Motion_control_prusa_bus_heartbeat();
 
     if (request[0] == discovery_address) {
         uint8_t uid[12];
@@ -167,7 +173,8 @@ void process_frame() {
             const uint16_t rgb = reg == 0x101u ? value : Motion_control_prusa_led_rgb565();
             accepted = Motion_control_prusa_settings_save(mm, rgb);
         } else if (reg >= 0x110u && reg < 0x114u &&
-            calibration_state != 1u && !calibrate_pending) {
+            calibration_state != 1u && !calibrate_pending &&
+            Motion_control_prusa_phase() != 1u && Motion_control_prusa_phase() != 2u) {
             const uint8_t ch = static_cast<uint8_t>(reg - 0x110u);
             auto &fil = ams[BMCU_LOCAL_AMS_INDEX].filament[ch];
             fil.color_R = static_cast<uint8_t>(((value >> 11u) & 31u) * 255u / 31u);
@@ -175,10 +182,26 @@ void process_frame() {
             fil.color_B = static_cast<uint8_t>((value & 31u) * 255u / 31u);
             ams_datas_set_need_to_save_filament(ch);
             accepted = true;
+        } else if (reg == 0x106u) {
+            accepted = Motion_control_prusa_command(value);
+        } else if (reg == 0x105u && (value < 4u || value == 0xFFu)) {
+            accepted = Motion_control_prusa_arm(static_cast<uint8_t>(value));
         } else if (reg == 0x104u && (value < 4u || value == 0xFFu)) {
             attention_channel = static_cast<uint8_t>(value);
             accepted = true;
-        } else if (reg == 0x103u && value == 0xC1EAu) {
+        } else if (reg == 0x107u && value == 0xD1CAu) {
+            accepted = !calibrate_pending && calibration_state != 1u &&
+                Flash_background_idle() && Motion_control_prusa_ready_for_settings() &&
+                Motion_control_prusa_armed_channel() == 0xFFu &&
+                Motion_control_prusa_phase() != 2u;
+            if (accepted) {
+                calibration_state = 1u;
+                motor_calibrate_pending = true;
+                calibrate_pending = true;
+                calibrate_at = time_ticks32() + ms_to_ticks32(300u);
+            }
+        } else if (reg == 0x103u && value == 0xC1EAu &&
+            Motion_control_prusa_phase() != 1u && Motion_control_prusa_phase() != 2u) {
             accepted = ams_state_prusa_clear_loaded();
         } else if (reg == 0x102u && value == 0xCA1Bu) {
             accepted = !calibrate_pending && calibration_state != 1u &&
@@ -245,8 +268,10 @@ void prusa_modbus_calibration_run() {
     if (!calibrate_pending || !time_reached32(time_ticks32(), calibrate_at)) return;
     if (!bus_background_ready()) return;
     calibrate_pending = false;
-    const bool success = MC_PULL_calibration_boot(true);
-    if (!success) MC_PULL_calibration_boot(false, false);
+    const bool motor = motor_calibrate_pending;
+    motor_calibrate_pending = false;
+    const bool success = motor ? Motion_control_prusa_calibrate_directions() : MC_PULL_calibration_boot(true);
+    if (!success && !motor) MC_PULL_calibration_boot(false, false);
     calibration_state = success ? 2u : 3u;
 }
 
