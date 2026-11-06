@@ -1806,8 +1806,16 @@ public:
 
                     if (!send_len_abort)
                     {
-                        constexpr uint32_t SEND_MAX_COUNT = distance_counts(10.0f);
-                        if (count_distance(encoder_count(CHx), send_start_count) >= SEND_MAX_COUNT)
+#ifdef BMCU_PRUSA
+                        const bool prusa_feed = (g_prusa_motion_phase == 6u || g_prusa_motion_phase == 8u) &&
+                            g_prusa_motion_channel == CHx;
+                        const uint32_t send_max_count = prusa_feed ? g_prusa_feed_limit : distance_counts(10.0f);
+                        const uint32_t send_start = prusa_feed ? g_prusa_feed_start_count : send_start_count;
+#else
+                        constexpr uint32_t send_max_count = distance_counts(10.0f);
+                        const uint32_t send_start = send_start_count;
+#endif
+                        if (count_distance(encoder_count(CHx), send_start) >= send_max_count)
                             send_len_abort = 1;
                     }
 
@@ -3218,6 +3226,7 @@ void Motion_control_prusa_poll() {
     if ((g_prusa_motion_phase == 6u || g_prusa_motion_phase == 8u) &&
         g_prusa_motion_channel < 4u) {
         const uint8_t ch = g_prusa_motion_channel;
+        AS5600_distance_updata(now_ticks);
         const uint32_t count = encoder_count(ch);
         const uint32_t moved = count_distance(count, g_prusa_feed_start_count);
         const auto stop_feed = [&](uint16_t result) {
