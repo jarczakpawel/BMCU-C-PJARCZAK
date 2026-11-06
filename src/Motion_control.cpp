@@ -221,6 +221,13 @@ static uint64_t g_prusa_last_adc_ms = 0u;
 static uint64_t g_prusa_last_host_ms = 0u;
 static uint64_t g_prusa_before_started_ms = 0u;
 static uint64_t g_prusa_motor_lease_ms = 0u;
+static uint32_t g_prusa_feed_start_count = 0u;
+static uint32_t g_prusa_feed_last_count = 0u;
+static uint32_t g_prusa_feed_limit = 0u;
+static bool g_prusa_internal_seen = false;
+static uint64_t g_prusa_feed_started_ms = 0u;
+static uint64_t g_prusa_feed_last_moved_ms = 0u;
+static uint32_t g_prusa_feed_motor_ticks = 0u;
 #endif
 static uint8_t g_key_empty[4] = {0,0,0,0};
 static bool g_key_sample_fresh = false;
@@ -692,7 +699,9 @@ uint16_t Motion_control_prusa_switches() {
 
 bool Motion_control_prusa_arm(uint8_t channel) {
     if ((channel != 0xFFu && channel >= 4u) ||
-        (channel < 4u && (g_prusa_motion_phase == 1u || g_prusa_motion_phase == 2u))) return false;
+        (channel < 4u && (g_prusa_motion_phase == 1u || g_prusa_motion_phase == 2u ||
+            g_prusa_motion_phase == 6u || g_prusa_motion_phase == 8u ||
+            (g_prusa_motion_phase == 11u && g_prusa_motion_channel != channel)))) return false;
     if (g_prusa_armed != channel) {
         g_prusa_armed = channel;
         g_prusa_was_present = false;
@@ -1872,8 +1881,16 @@ public:
                     else
                     {
                         constexpr uint64_t SEND_SOFTSTART_MS = 300ull;
-                        constexpr float    V0 = 10.0f;
-                        constexpr float    V  = 60.0f;
+                        constexpr float V0 = 10.0f;
+#ifdef BMCU_PRUSA
+                        const uint32_t travelled = count_distance(encoder_count(CHx), g_prusa_feed_start_count);
+                        const uint32_t remain = travelled < g_prusa_feed_limit ?
+                            g_prusa_feed_limit - travelled : 0u;
+                        const float V = g_prusa_motion_phase == 8u &&
+                            remain < distance_counts(0.150f) ? 12.0f : 60.0f;
+#else
+                        constexpr float V = 60.0f;
+#endif
 
                         const uint64_t dt = (send_start_ms != 0) ? (now_ms - send_start_ms) : 1000000ull;
 
@@ -3100,8 +3117,159 @@ void Motion_control_prusa_poll() {
             g_prusa_was_present = true;
         } else if (g_prusa_was_present) {
             g_prusa_stop_mask |= static_cast<uint16_t>(1u << armed);
+            if (g_prusa_motion_phase == 11u) {
+                MOTOR_CONTROL[armed].set_motion(filament_motion_enum::filament_motion_stop, 0u, now_ms);
+                g_prusa_motion_phase = 0u;
+                g_prusa_motion_channel = 0xFFu;
+            }
             for (uint8_t ch = 0u; ch < 4u; ++ch) Motion_control_set_PWM(ch, 0);
         }
+    }
+    if (g_prusa_motion_phase == 9u && g_prusa_motion_channel < 4u) {
+        const uint8_t ch = g_prusa_motion_channel;
+        if (!g_prusa_motor_lease_ms || now_ms - g_prusa_motor_lease_ms > 1500u) {
+            MOTOR_CONTROL[ch].set_motion(filament_motion_enum::filament_motion_stop, 0u, now_ms);
+            Motion_control_set_PWM(ch, 0);
+            return;
+        }
+        if (!g_prusa_last_adc_ms || now_ms - g_prusa_last_adc_ms > 500u ||
+            !MC_PULL_calibration_is_valid(ch) || !AS5600_is_good(ch) ||
+            !filament_channel_inserted[ch] ||
+            (MOTOR_CONTROL[ch].dir != 1.0f && MOTOR_CONTROL[ch].dir != -1.0f) ||
+            MC_PULL_pct_f[ch] < 30.0f || MC_PULL_pct_f[ch] > 97.0f ||
+            g_on_use_jam_latch[ch]) {
+            MOTOR_CONTROL[ch].set_motion(filament_motion_enum::filament_motion_stop, 0u, now_ms);
+            Motion_control_set_PWM(ch, 0);
+            g_prusa_stop_mask |= static_cast<uint16_t>(1u << ch);
+            g_prusa_motion_phase = 12u;
+            return;
+        }
+        AS5600_distance_updata(now_ticks);
+        const uint32_t dt = now_ticks - g_prusa_last_motor_ticks;
+        if (dt < ms_to_ticks32(1u)) return;
+        g_prusa_last_motor_ticks = now_ticks;
+        MOTOR_CONTROL[ch].set_motion(filament_motion_enum::filament_motion_pressure_ctrl_on_use, 100u, now_ms);
+        const uint32_t tpus = time_hw_tpus ? time_hw_tpus : 1u;
+        MOTOR_CONTROL[ch].run(static_cast<float>(dt) / (static_cast<float>(tpus) * 1000000.0f), now_ms);
+        return;
+    }
+    if (g_prusa_motion_phase == 11u && g_prusa_motion_channel < 4u) {
+        const uint8_t ch = g_prusa_motion_channel;
+        AS5600_distance_updata(now_ticks);
+        if (g_prusa_armed == 0xFFu &&
+            ((!(g_prusa_switches & (1u << ch)) &&
+                !(g_prusa_switches & (1u << (ch + 4u)))) ||
+                MC_PULL_pct_f[ch] < 30.0f)) {
+            MOTOR_CONTROL[ch].set_motion(filament_motion_enum::filament_motion_stop, 0u, now_ms);
+            Motion_control_set_PWM(ch, 0);
+            g_prusa_motion_phase = 13u;
+            return;
+        }
+        const auto stop_on_use = [&] {
+            MOTOR_CONTROL[ch].set_motion(filament_motion_enum::filament_motion_stop, 0u, now_ms);
+            Motion_control_set_PWM(ch, 0);
+            g_prusa_motion_phase = 12u;
+            g_prusa_stop_mask |= static_cast<uint16_t>(1u << ch);
+        };
+        if (!g_prusa_last_adc_ms || now_ms - g_prusa_last_adc_ms > 500u ||
+            now_ms - g_prusa_motor_lease_ms > 1500u ||
+            !filament_channel_inserted[ch] || !MC_PULL_calibration_is_valid(ch) ||
+            !AS5600_is_good(ch) ||
+            (MOTOR_CONTROL[ch].dir != 1.0f && MOTOR_CONTROL[ch].dir != -1.0f) ||
+            MC_PULL_pct_f[ch] < 30.0f || MC_PULL_pct_f[ch] > 97.0f ||
+            g_on_use_jam_latch[ch]) {
+            stop_on_use();
+            return;
+        }
+        if (!(g_prusa_switches & (1u << ch)) &&
+            !(g_prusa_switches & (1u << (ch + 4u)))) {
+            stop_on_use();
+            return;
+        }
+        const uint32_t dt = now_ticks - g_prusa_last_motor_ticks;
+        if (dt < ms_to_ticks32(1u)) return;
+        g_prusa_last_motor_ticks = now_ticks;
+        MOTOR_CONTROL[ch].set_motion(filament_motion_enum::filament_motion_pressure_ctrl_on_use, 100u, now_ms);
+        const uint32_t tpus = time_hw_tpus ? time_hw_tpus : 1u;
+        MOTOR_CONTROL[ch].run(static_cast<float>(dt) / (static_cast<float>(tpus) * 1000000.0f), now_ms);
+        return;
+    }
+    if (g_prusa_motion_phase == 5u && g_prusa_motion_channel < 4u) {
+        const uint8_t ch = g_prusa_motion_channel;
+        if (!g_key_sample_fresh || !MC_PULL_calibration_is_valid(ch) || !AS5600_is_good(ch) ||
+            !(g_prusa_switches & (1u << ch))) return;
+#if BMCU_DM_TWO_MICROSWITCH
+        if (g_prusa_switches & (1u << (ch + 4u))) {
+            g_prusa_motion_phase = 7u;
+        } else {
+            g_prusa_feed_start_count = encoder_count(ch);
+            g_prusa_feed_last_count = g_prusa_feed_start_count;
+            g_prusa_feed_limit = distance_counts(0.250f);
+            g_prusa_internal_seen = false;
+            g_prusa_feed_started_ms = g_prusa_feed_last_moved_ms = now_ms;
+            g_prusa_feed_motor_ticks = now_ticks;
+            g_prusa_motor_lease_ms = now_ms;
+            g_prusa_motion_phase = 6u;
+        }
+#else
+        g_prusa_motion_phase = 7u;
+#endif
+    }
+    if ((g_prusa_motion_phase == 6u || g_prusa_motion_phase == 8u) &&
+        g_prusa_motion_channel < 4u) {
+        const uint8_t ch = g_prusa_motion_channel;
+        const uint32_t count = encoder_count(ch);
+        const uint32_t moved = count_distance(count, g_prusa_feed_start_count);
+        const auto stop_feed = [&](uint16_t result) {
+            g_prusa_motion_phase = result;
+            MOTOR_CONTROL[ch].set_motion(filament_motion_enum::filament_motion_stop, 0u, now_ms);
+            Motion_control_set_PWM(ch, 0);
+        };
+        if (!g_prusa_last_adc_ms || now_ms - g_prusa_last_adc_ms > 500u ||
+            !filament_channel_inserted[ch] || !MC_PULL_calibration_is_valid(ch) ||
+            !AS5600_is_good(ch) || !(g_prusa_switches & (1u << ch)) ||
+            (MOTOR_CONTROL[ch].dir != 1.0f && MOTOR_CONTROL[ch].dir != -1.0f) ||
+            MC_PULL_pct_f[ch] < 25.0f || MC_PULL_pct_f[ch] > 90.0f ||
+            now_ms - g_prusa_motor_lease_ms > 1500u ||
+            now_ms - g_prusa_last_host_ms > 3000u ||
+            now_ms - g_prusa_feed_started_ms > 180000u) {
+            stop_feed(10u);
+            return;
+        }
+#if BMCU_DM_TWO_MICROSWITCH
+        if (g_prusa_motion_phase == 6u && !g_prusa_internal_seen &&
+            (g_prusa_switches & (1u << (ch + 4u)))) {
+            g_prusa_internal_seen = true;
+            const uint32_t target = moved + DM_AUTO_S2_TARGET_COUNT;
+            g_prusa_feed_limit = target < distance_counts(0.250f) ?
+                target : distance_counts(0.250f);
+        }
+#endif
+        if (moved >= g_prusa_feed_limit) {
+#if BMCU_DM_TWO_MICROSWITCH
+            if (g_prusa_motion_phase == 6u && !g_prusa_internal_seen) {
+                stop_feed(10u);
+                return;
+            }
+#endif
+            stop_feed(g_prusa_motion_phase == 6u ? 7u : 10u);
+            return;
+        }
+        if (count_distance(count, g_prusa_feed_last_count) >= distance_counts(0.002f)) {
+            g_prusa_feed_last_count = count;
+            g_prusa_feed_last_moved_ms = now_ms;
+        } else if (now_ms - g_prusa_feed_started_ms > 1500u &&
+            now_ms - g_prusa_feed_last_moved_ms > 1500u) {
+            stop_feed(10u);
+            return;
+        }
+        const uint32_t dt = now_ticks - g_prusa_feed_motor_ticks;
+        if (dt < ms_to_ticks32(1u)) return;
+        g_prusa_feed_motor_ticks = now_ticks;
+        const uint32_t tpus = time_hw_tpus ? time_hw_tpus : 1u;
+        MOTOR_CONTROL[ch].set_motion(filament_motion_enum::filament_motion_send, 100u, now_ms);
+        MOTOR_CONTROL[ch].run(static_cast<float>(dt) / (static_cast<float>(tpus) * 1000000.0f), now_ms);
+        return;
     }
     if (g_prusa_motion_phase != 1u && g_prusa_motion_phase != 2u) return;
     const uint8_t ch = g_prusa_motion_channel;
@@ -3207,8 +3375,69 @@ bool Motion_control_prusa_command(uint16_t command) {
     const uint8_t ch = static_cast<uint8_t>(command);
     const uint16_t operation = command & 0xFF00u;
     if (command == 0xB4FFu &&
-        (g_prusa_motion_phase == 1u || g_prusa_motion_phase == 2u)) {
+        (g_prusa_motion_phase == 1u || g_prusa_motion_phase == 2u ||
+            g_prusa_motion_phase == 6u || g_prusa_motion_phase == 8u ||
+            g_prusa_motion_phase == 9u || g_prusa_motion_phase == 11u)) {
         g_prusa_motor_lease_ms = time_ms64();
+        return true;
+    }
+    if (operation == 0xC300u && ch < 4u &&
+        (g_prusa_motion_phase == 0u || g_prusa_motion_phase == 9u) &&
+        (g_prusa_armed == 0xFFu || g_prusa_armed == ch) &&
+        !(g_prusa_stop_mask & (1u << ch)) &&
+        (g_prusa_switches & (1u << ch)) &&
+        (Motion_control_prusa_motor_ready_mask() & (1u << ch))) {
+        if (ams_state_get_loaded() != 0xFFu && ams_state_get_loaded() != ch)
+            return false;
+        ams_state_set_loaded(ch);
+        g_prusa_motion_channel = ch;
+        g_prusa_motor_lease_ms = time_ms64();
+        g_prusa_last_motor_ticks = time_ticks32();
+        g_prusa_motion_phase = 11u;
+        return true;
+    }
+    if (operation == 0xC400u && ch < 4u && g_prusa_motion_channel == ch &&
+        g_prusa_motion_phase == 11u) {
+        MOTOR_CONTROL[ch].set_motion(filament_motion_enum::filament_motion_stop, 0u);
+        Motion_control_set_PWM(ch, 0);
+        g_prusa_motion_phase = 0u;
+        g_prusa_motion_channel = 0xFFu;
+        return true;
+    }
+    if (operation == 0xC000u && ch < 4u && g_prusa_armed == 0xFFu &&
+        (g_prusa_motion_phase == 0u || g_prusa_motion_phase == 3u ||
+            g_prusa_motion_phase == 4u || g_prusa_motion_phase == 9u ||
+            g_prusa_motion_phase == 10u || g_prusa_motion_phase == 13u)) {
+        if (!filament_channel_inserted[ch] || !MC_PULL_calibration_is_valid(ch) ||
+            !AS5600_is_good(ch) ||
+            (MOTOR_CONTROL[ch].dir != 1.0f && MOTOR_CONTROL[ch].dir != -1.0f)) return false;
+        for (uint8_t i = 0u; i < 4u; ++i) Motion_control_set_PWM(i, 0);
+        g_prusa_motion_channel = ch;
+        g_prusa_motion_phase = 5u;
+        return true;
+    }
+    if (operation == 0xC100u && ch < 4u &&
+        g_prusa_motion_phase == 7u && g_prusa_motion_channel == ch &&
+        (g_prusa_switches & (1u << ch)) && g_prusa_armed == 0xFFu) {
+        g_prusa_feed_start_count = encoder_count(ch);
+        g_prusa_feed_last_count = g_prusa_feed_start_count;
+        const uint32_t mm = static_cast<uint32_t>(prusa_retract_mm) + 120u;
+        g_prusa_feed_limit = distance_counts(static_cast<float>(mm <= 2000u ? mm : 2000u) * 0.001f);
+        g_prusa_feed_started_ms = g_prusa_feed_last_moved_ms = time_ms64();
+        g_prusa_feed_motor_ticks = time_ticks32();
+        g_prusa_motor_lease_ms = g_prusa_feed_started_ms;
+        g_prusa_motion_phase = 8u;
+        return true;
+    }
+    if (operation == 0xC200u && ch < 4u &&
+        g_prusa_motion_phase == 8u && g_prusa_motion_channel == ch) {
+        if (ams_state_get_loaded() != 0xFFu && ams_state_get_loaded() != ch)
+            return false;
+        ams_state_set_loaded(ch);
+        MOTOR_CONTROL[ch].set_motion(filament_motion_enum::filament_motion_stop, 0u);
+        Motion_control_set_PWM(ch, 0);
+        g_prusa_motion_phase = 9u;
+        g_prusa_motor_lease_ms = 0u;
         return true;
     }
     if (command == 0xB2FFu) {
@@ -3219,7 +3448,11 @@ bool Motion_control_prusa_command(uint16_t command) {
         g_prusa_motion_phase = 4u;
         return true;
     }
-    if (command == 0xB3FFu && g_prusa_motion_phase != 1u && g_prusa_motion_phase != 2u) {
+    if (command == 0xB3FFu && g_prusa_motion_phase != 1u &&
+        g_prusa_motion_phase != 2u && g_prusa_motion_phase != 6u &&
+        g_prusa_motion_phase != 8u && g_prusa_motion_phase != 11u) {
+        if (g_prusa_motion_channel < 4u)
+            g_prusa_stop_mask &= static_cast<uint16_t>(~(1u << g_prusa_motion_channel));
         g_prusa_motion_phase = 0u;
         g_prusa_motion_channel = 0xFFu;
         return true;

@@ -60,8 +60,8 @@ void exception(uint8_t function, uint8_t code) {
 
 uint16_t read_register(uint16_t index) {
     switch (index) {
-    case 0u: return 0xB4CCu;
-    case 1u: return 10u;
+    case 0u: return 0xB4CDu;
+    case 1u: return 11u;
     case 2u: return address ? static_cast<uint16_t>(address - 0xE0u) : 0xFFFFu;
     case 3u: return 4u;
     case 4u: return ams_state_get_loaded();

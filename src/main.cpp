@@ -337,8 +337,10 @@ int main(void)
             if (prusa_modbus_attention_channel() == ch) {
                 const bool on = ((time_ms64() / 400u) & 1u) == 0u;
                 RGBOUT[ch].set_RGB(on ? 0x20u : 0u, on ? 0x10u : 0u, 0u, 0);
-            } else if (Motion_control_prusa_armed_channel() == ch &&
-                (Motion_control_prusa_stop_status() & (1u << ch))) {
+            } else if ((Motion_control_prusa_armed_channel() == ch &&
+                (Motion_control_prusa_stop_status() & (1u << ch))) ||
+                (Motion_control_prusa_motion_channel() == ch &&
+                (Motion_control_prusa_phase() == 10u || Motion_control_prusa_phase() == 12u))) {
                 RGBOUT[ch].set_RGB(0x30u, 0u, 0u, 0);
             } else {
                 RGBOUT[ch].set_RGB(fil.color_R, fil.color_G, fil.color_B, 0);
