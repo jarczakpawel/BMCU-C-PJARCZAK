@@ -190,6 +190,9 @@ bool bus_background_ready()
 {
     if (!bus_started) return true;
     bus_rx_poll();
+#ifdef BMCU_PRUSA
+    if (!prusa_modbus_bus_idle()) return false;
+#endif
     return bus_port_to_host.idle && !bus_port_to_host.send_data_len &&
         !bus_port_to_host.recv_data_len && !bus_port_to_host.receiving() &&
         rx_consumed == rx_produced() && !rx_fault &&

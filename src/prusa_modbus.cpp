@@ -2,6 +2,7 @@
 #ifdef BMCU_PRUSA
 #include "_bus_hardware.h"
 #include "Motion_control.h"
+#include "ams.h"
 #include "Flash_saves.h"
 #include "MC_PULL_calibration.h"
 #include "app_api.h"
@@ -10,7 +11,7 @@
 
 namespace {
 constexpr uint8_t discovery_address = 0xF0u;
-constexpr uint16_t input_registers = 18u;
+constexpr uint16_t input_registers = 23u;
 uint8_t address = 0u;
 uint8_t request[20] {};
 uint8_t received = 0u;
@@ -57,8 +58,8 @@ void exception(uint8_t function, uint8_t code) {
 
 uint16_t read_register(uint16_t index) {
     switch (index) {
-    case 0u: return 0xB4C5u;
-    case 1u: return 3u;
+    case 0u: return 0xB4C6u;
+    case 1u: return 4u;
     case 2u: return address ? static_cast<uint16_t>(address - 0xE0u) : 0xFFFFu;
     case 3u: return 4u;
     case 4u: return ams_state_get_loaded();
@@ -74,7 +75,13 @@ uint16_t read_register(uint16_t index) {
     case 15u: return calibration_state;
     case 16u: return Motion_control_prusa_phase();
     case 17u: return Motion_control_prusa_calibration_mask();
+    case 22u: return ams_datas_dirty_mask();
     default: {
+        if (index >= 18u) {
+            const auto &fil = ams[BMCU_LOCAL_AMS_INDEX].filament[index - 18u];
+            return static_cast<uint16_t>(((fil.color_R >> 3) << 11u) |
+                ((fil.color_G >> 2) << 5u) | (fil.color_B >> 3));
+        }
         const volatile uint8_t *uid = reinterpret_cast<const volatile uint8_t *>(0x1FFFF7E8u);
         const uint8_t pos = static_cast<uint8_t>((index - 6u) * 2u);
         return static_cast<uint16_t>((static_cast<uint16_t>(uid[pos]) << 8) | uid[pos + 1u]);
@@ -155,6 +162,15 @@ void process_frame() {
             const uint16_t mm = reg == 0x100u ? value : Motion_control_prusa_retract_mm();
             const uint16_t rgb = reg == 0x101u ? value : Motion_control_prusa_led_rgb565();
             accepted = Motion_control_prusa_settings_save(mm, rgb);
+        } else if (reg >= 0x110u && reg < 0x114u &&
+            calibration_state != 1u && !calibrate_pending) {
+            const uint8_t ch = static_cast<uint8_t>(reg - 0x110u);
+            auto &fil = ams[BMCU_LOCAL_AMS_INDEX].filament[ch];
+            fil.color_R = static_cast<uint8_t>(((value >> 11u) & 31u) * 255u / 31u);
+            fil.color_G = static_cast<uint8_t>(((value >> 5u) & 63u) * 255u / 63u);
+            fil.color_B = static_cast<uint8_t>((value & 31u) * 255u / 31u);
+            ams_datas_set_need_to_save_filament(ch);
+            accepted = true;
         } else if (reg == 0x102u && value == 0xCA1Bu) {
             accepted = !calibrate_pending && calibration_state != 1u &&
                 Flash_background_idle() && Motion_control_prusa_ready_for_settings();
@@ -178,6 +194,7 @@ void prusa_modbus_rx(uint8_t data) {
     const uint32_t now = time_ticks32();
     if (received && static_cast<uint32_t>(now - last_rx) > us_to_ticks32(1100u)) received = 0u;
     last_rx = now;
+    if (!bus_port_to_host.idle) { received = 0u; return; }
     if (pending) {
         if (response[0] == discovery_address && response[1] == 0x41u)
             pending = false;
@@ -208,6 +225,11 @@ void prusa_modbus_rx(uint8_t data) {
 void prusa_modbus_run() {
     if (!pending || !time_reached32(time_ticks32(), reply_at)) return;
     if (bus_uart1_dma_send(response, response_length)) pending = false;
+}
+
+bool prusa_modbus_bus_idle() {
+    return !received && !pending && bus_port_to_host.idle &&
+        static_cast<uint32_t>(time_ticks32() - last_rx) >= us_to_ticks32(900u);
 }
 
 void prusa_modbus_calibration_run() {

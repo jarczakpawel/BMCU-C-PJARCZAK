@@ -113,6 +113,10 @@ void ams_datas_set_need_to_save()
     g_fil_dirty = 0x0Fu;
 }
 
+#ifdef BMCU_PRUSA
+uint8_t ams_datas_dirty_mask() { return g_fil_dirty; }
+#endif
+
 void ams_datas_set_need_to_save_filament(uint8_t filament_idx)
 {
     if (filament_idx >= 4u) return;
@@ -305,9 +309,14 @@ int main(void)
 #endif
 #ifdef BMCU_PRUSA
         Motion_control_run(-1);
+        if (g_fil_dirty && bus_background_ready()) ams_datas_save_run();
         Flash_background_run();
         prusa_modbus_calibration_run();
         const uint16_t rgb = Motion_control_prusa_led_rgb565();
+        for (uint8_t ch = 0u; ch < 4u; ++ch) {
+            const auto &fil = ams[BMCU_LOCAL_AMS_INDEX].filament[ch];
+            RGBOUT[ch].set_RGB(fil.color_R, fil.color_G, fil.color_B, 0);
+        }
         SYS_RGB.set_RGB(static_cast<uint8_t>(((rgb >> 11) & 31u) * 2u),
                         static_cast<uint8_t>(((rgb >> 5) & 63u)),
                         static_cast<uint8_t>((rgb & 31u) * 2u), 0);
