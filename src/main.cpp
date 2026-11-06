@@ -168,6 +168,24 @@ uint8_t ams_state_get_loaded(void)
     return g_loaded_ch;
 }
 
+#ifdef BMCU_PRUSA
+bool ams_state_prusa_clear_loaded() {
+    if (g_loaded_ch < 4u && Motion_control_filament_present(g_loaded_ch)) return false;
+    ams_state_set_unloaded(0xFFu);
+    auto &unit = ams[BMCU_LOCAL_AMS_INDEX];
+    unit.now_filament_num = 0xFFu;
+    unit.filament_use_flag = 0u;
+    for (auto &fil : unit.filament) fil.motion = _filament_motion::idle;
+    return true;
+}
+
+uint8_t ams_state_prusa_save_pending() {
+    if (g_state_dirty || !Flash_background_idle()) return 1u;
+    uint8_t saved = 0xFFu;
+    return Flash_AMS_state_read(&saved) && saved == g_loaded_ch ? 0u : 2u;
+}
+#endif
+
 static void ams_state_save_run()
 {
     if (!g_state_dirty) return;
@@ -309,6 +327,7 @@ int main(void)
 #endif
 #ifdef BMCU_PRUSA
         Motion_control_prusa_poll();
+        if (g_state_dirty && bus_background_ready()) ams_state_save_run();
         if (g_fil_dirty && bus_background_ready()) ams_datas_save_run();
         Flash_background_run();
         prusa_modbus_calibration_run();

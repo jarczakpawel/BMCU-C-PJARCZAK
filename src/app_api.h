@@ -24,5 +24,9 @@ void ams_state_claim_loaded(uint8_t filament_ch);
 void ams_state_set_loaded(uint8_t filament_ch);
 void ams_state_set_unloaded(uint8_t filament_ch);
 uint8_t ams_state_get_loaded(void);
+#ifdef BMCU_PRUSA
+bool ams_state_prusa_clear_loaded();
+uint8_t ams_state_prusa_save_pending();
+#endif
 
 float Motion_control_filament_meters(uint8_t ch);

@@ -11,7 +11,7 @@
 
 namespace {
 constexpr uint8_t discovery_address = 0xF0u;
-constexpr uint16_t input_registers = 23u;
+constexpr uint16_t input_registers = 24u;
 uint8_t address = 0u;
 uint8_t request[20] {};
 uint8_t received = 0u;
@@ -58,8 +58,8 @@ void exception(uint8_t function, uint8_t code) {
 
 uint16_t read_register(uint16_t index) {
     switch (index) {
-    case 0u: return 0xB4C6u;
-    case 1u: return 4u;
+    case 0u: return 0xB4C7u;
+    case 1u: return 5u;
     case 2u: return address ? static_cast<uint16_t>(address - 0xE0u) : 0xFFFFu;
     case 3u: return 4u;
     case 4u: return ams_state_get_loaded();
@@ -76,6 +76,7 @@ uint16_t read_register(uint16_t index) {
     case 16u: return Motion_control_prusa_phase();
     case 17u: return Motion_control_prusa_calibration_mask();
     case 22u: return ams_datas_dirty_mask();
+    case 23u: return ams_state_prusa_save_pending();
     default: {
         if (index >= 18u) {
             const auto &fil = ams[BMCU_LOCAL_AMS_INDEX].filament[index - 18u];
@@ -171,6 +172,8 @@ void process_frame() {
             fil.color_B = static_cast<uint8_t>((value & 31u) * 255u / 31u);
             ams_datas_set_need_to_save_filament(ch);
             accepted = true;
+        } else if (reg == 0x103u && value == 0xC1EAu) {
+            accepted = ams_state_prusa_clear_loaded();
         } else if (reg == 0x102u && value == 0xCA1Bu) {
             accepted = !calibrate_pending && calibration_state != 1u &&
                 Flash_background_idle() && Motion_control_prusa_ready_for_settings();

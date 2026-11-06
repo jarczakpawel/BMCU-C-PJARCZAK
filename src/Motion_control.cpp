@@ -643,9 +643,7 @@ static uint16_t prusa_retract_mm = static_cast<uint16_t>(motion_control_pull_bac
 static uint16_t prusa_rgb565 = 0xFFFFu;
 
 uint16_t Motion_control_prusa_phase() {
-    const auto &unit = ams[motion_control_ams_num];
-    const uint8_t ch = unit.now_filament_num;
-    return ch < 4u ? static_cast<uint16_t>(unit.filament[ch].motion) : 0u;
+    return 0u;
 }
 
 uint16_t Motion_control_prusa_calibration_mask() {
@@ -736,7 +734,7 @@ bool Motion_control_prusa_ready_for_settings() {
 }
 
 bool Motion_control_prusa_settings_save(uint16_t mm, uint16_t rgb565) {
-    if (mm < 1u || mm > 10000u || !Motion_control_prusa_ready_for_settings()) return false;
+    if (mm < 1u || mm > 10000u) return false;
     const uint32_t previous = Flash_Prusa_settings_get();
     const uint32_t next = 0x80000000u | (static_cast<uint32_t>(rgb565) << 14) | mm;
     if (next != previous) {
