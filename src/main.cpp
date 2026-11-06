@@ -334,7 +334,12 @@ int main(void)
         const uint16_t rgb = Motion_control_prusa_led_rgb565();
         for (uint8_t ch = 0u; ch < 4u; ++ch) {
             const auto &fil = ams[BMCU_LOCAL_AMS_INDEX].filament[ch];
-            RGBOUT[ch].set_RGB(fil.color_R, fil.color_G, fil.color_B, 0);
+            if (prusa_modbus_attention_channel() == ch) {
+                const bool on = ((time_ms64() / 400u) & 1u) == 0u;
+                RGBOUT[ch].set_RGB(on ? 0x20u : 0u, on ? 0x10u : 0u, 0u, 0);
+            } else {
+                RGBOUT[ch].set_RGB(fil.color_R, fil.color_G, fil.color_B, 0);
+            }
         }
         SYS_RGB.set_RGB(static_cast<uint8_t>(((rgb >> 11) & 31u) * 2u),
                         static_cast<uint8_t>(((rgb >> 5) & 63u)),

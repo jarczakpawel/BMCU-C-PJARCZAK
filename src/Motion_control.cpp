@@ -201,6 +201,9 @@ static float  MC_PULL_stu_raw[4]        = {1.65f, 1.65f, 1.65f, 1.65f};
 static int8_t MC_PULL_stu[4]            = {0, 0, 0, 0};
 
 static uint8_t  MC_ONLINE_key_stu[4]    = {0, 0, 0, 0};
+#ifdef BMCU_PRUSA
+static uint16_t g_prusa_switches = 0u;
+#endif
 static uint8_t g_key_empty[4] = {0,0,0,0};
 static bool g_key_sample_fresh = false;
 static constexpr uint8_t kKeyEmptyPublications = ADC_DMA_FILTER_BLOCKS + 1u;
@@ -480,6 +483,9 @@ static inline void MC_PULL_ONLINE_init()
 
 static inline void MC_PULL_ONLINE_read(uint32_t now_ticks)
 {
+#ifdef BMCU_PRUSA
+    g_prusa_switches = 0u;
+#endif
     const float *data = ADC_DMA_get_value();
     static uint32_t last_generation = 0u;
     const uint32_t generation = ADC_DMA_generation();
@@ -571,6 +577,10 @@ static inline void MC_PULL_ONLINE_read(uint32_t now_ticks)
         }
 
         const uint8_t phys = dm_key_to_state(i, keyv[i]);
+#ifdef BMCU_PRUSA
+        if (phys == 1u || phys == 2u) g_prusa_switches |= static_cast<uint16_t>(1u << i);
+        if (phys == 1u || phys == 3u) g_prusa_switches |= static_cast<uint16_t>(1u << (i + 4u));
+#endif
         uint8_t state = phys;
 
         if (gst_active[i] && (phys == 0u)) state = 2u;
@@ -644,6 +654,14 @@ static uint16_t prusa_rgb565 = 0xFFFFu;
 
 uint16_t Motion_control_prusa_phase() {
     return 0u;
+}
+
+uint16_t Motion_control_prusa_switches() {
+#if BMCU_DM_TWO_MICROSWITCH
+    return 0x100u | g_prusa_switches;
+#else
+    return 0u;
+#endif
 }
 
 uint16_t Motion_control_prusa_calibration_mask() {

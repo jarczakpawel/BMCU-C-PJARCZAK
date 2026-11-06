@@ -11,7 +11,7 @@
 
 namespace {
 constexpr uint8_t discovery_address = 0xF0u;
-constexpr uint16_t input_registers = 24u;
+constexpr uint16_t input_registers = 26u;
 uint8_t address = 0u;
 uint8_t request[20] {};
 uint8_t received = 0u;
@@ -24,6 +24,7 @@ uint32_t calibrate_at = 0u;
 uint8_t calibration_state = 0u;
 bool pending = false;
 bool calibrate_pending = false;
+uint8_t attention_channel = 0xFFu;
 
 uint16_t crc16(const uint8_t *data, uint16_t length) {
     uint16_t crc = 0xFFFFu;
@@ -58,8 +59,8 @@ void exception(uint8_t function, uint8_t code) {
 
 uint16_t read_register(uint16_t index) {
     switch (index) {
-    case 0u: return 0xB4C7u;
-    case 1u: return 5u;
+    case 0u: return 0xB4C9u;
+    case 1u: return 7u;
     case 2u: return address ? static_cast<uint16_t>(address - 0xE0u) : 0xFFFFu;
     case 3u: return 4u;
     case 4u: return ams_state_get_loaded();
@@ -77,6 +78,8 @@ uint16_t read_register(uint16_t index) {
     case 17u: return Motion_control_prusa_calibration_mask();
     case 22u: return ams_datas_dirty_mask();
     case 23u: return ams_state_prusa_save_pending();
+    case 24u: return Motion_control_prusa_switches();
+    case 25u: return attention_channel;
     default: {
         if (index >= 18u) {
             const auto &fil = ams[BMCU_LOCAL_AMS_INDEX].filament[index - 18u];
@@ -172,6 +175,9 @@ void process_frame() {
             fil.color_B = static_cast<uint8_t>((value & 31u) * 255u / 31u);
             ams_datas_set_need_to_save_filament(ch);
             accepted = true;
+        } else if (reg == 0x104u && (value < 4u || value == 0xFFu)) {
+            attention_channel = static_cast<uint8_t>(value);
+            accepted = true;
         } else if (reg == 0x103u && value == 0xC1EAu) {
             accepted = ams_state_prusa_clear_loaded();
         } else if (reg == 0x102u && value == 0xCA1Bu) {
@@ -244,4 +250,5 @@ void prusa_modbus_calibration_run() {
     calibration_state = success ? 2u : 3u;
 }
 
+uint8_t prusa_modbus_attention_channel() { return attention_channel; }
 #endif
