@@ -45,6 +45,7 @@ extern bool    filament_channel_inserted[4];
 bool Motion_control_filament_present(uint8_t ch);
 
 #ifdef BMCU_PRUSA
+void Motion_control_prusa_poll();
 uint16_t Motion_control_prusa_retract_mm();
 uint16_t Motion_control_prusa_phase();
 uint16_t Motion_control_prusa_calibration_mask();

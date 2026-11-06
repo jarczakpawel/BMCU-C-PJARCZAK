@@ -308,7 +308,7 @@ int main(void)
 
 #endif
 #ifdef BMCU_PRUSA
-        Motion_control_run(-1);
+        Motion_control_prusa_poll();
         if (g_fil_dirty && bus_background_ready()) ams_datas_save_run();
         Flash_background_run();
         prusa_modbus_calibration_run();

@@ -3013,6 +3013,12 @@ void Motion_control_run(int error)
     }
 }
 
+#ifdef BMCU_PRUSA
+void Motion_control_prusa_poll() {
+    MC_PULL_ONLINE_read(time_ticks32());
+}
+#endif
+
 // ===== PWM init =====
 void MC_PWM_init()
 {
