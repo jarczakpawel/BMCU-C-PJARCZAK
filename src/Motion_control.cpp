@@ -3336,6 +3336,7 @@ void Motion_control_prusa_poll() {
     }
     if (g_prusa_empty_count && moved >= g_prusa_empty_count) {
         stop(3u);
+        ams_state_set_unloaded(ch);
         return;
     }
     const uint64_t max_ms = 5000u + static_cast<uint64_t>(prusa_retract_mm) * 1000u / 12u;
